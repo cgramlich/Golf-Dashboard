@@ -211,6 +211,264 @@
     font-weight: 500;
     margin: 16px 0 8px;
   }
+
+  /* ===== Log feature ===== */
+  .sync-status {
+    background: rgba(0,0,0,0.25);
+    color: var(--cream);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+  .sync-chevron {
+    color: var(--gold);
+    font-size: 1.1rem;
+    font-weight: bold;
+  }
+
+  .log-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .btn-primary, .btn-secondary, .btn-danger {
+    border: none;
+    border-radius: 12px;
+    padding: 11px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    flex: 1;
+    transition: transform 0.1s;
+  }
+  .btn-primary { background: var(--gold); color: var(--dark); }
+  .btn-secondary { background: rgba(255,255,255,0.18); color: var(--cream); }
+  .btn-danger { background: var(--error-red); color: white; flex: 0 0 auto; padding: 10px 14px; }
+  .btn-primary:hover, .btn-secondary:hover, .btn-danger:hover { transform: translateY(-1px); }
+
+  .search-box {
+    width: 100%;
+    padding: 11px 14px;
+    border-radius: 12px;
+    border: 1.5px solid rgba(201,168,76,0.35);
+    background: rgba(255,255,255,0.95);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+    box-sizing: border-box;
+  }
+
+  .log-filters {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 14px;
+  }
+  .log-filters::-webkit-scrollbar { display: none; }
+  .filter-chip {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    border-radius: 18px;
+    border: 1.5px solid rgba(201,168,76,0.4);
+    background: transparent;
+    color: var(--cream);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.76rem;
+    font-weight: 500;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+  }
+  .filter-chip.active {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--dark);
+    font-weight: 700;
+  }
+
+  .entries-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .entry-card {
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    cursor: pointer;
+    border-left: 4px solid var(--green-light);
+    transition: transform 0.1s;
+  }
+  .entry-card:hover { transform: translateY(-1px); }
+  .entry-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.75rem;
+  }
+  .entry-type-badge {
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .entry-type-badge.type-lesson { background: rgba(45,90,39,0.15); color: var(--green); }
+  .entry-type-badge.type-range { background: rgba(201,168,76,0.25); color: #8a6a1a; }
+  .entry-type-badge.type-thought { background: rgba(36,113,163,0.15); color: var(--error-blue); }
+  .entry-date { color: #777; }
+  .entry-instructor { color: #555; font-style: italic; }
+  .entry-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    color: var(--green);
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  .entry-body {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #333;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--cream);
+    opacity: 0.75;
+    padding: 50px 20px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  /* ===== Modals ===== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    background: white;
+    width: 100%;
+    max-width: 640px;
+    max-height: 92vh;
+    border-radius: 20px 20px 0 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-header {
+    padding: 14px 20px;
+    background: var(--green);
+    color: var(--cream);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-header h3 {
+    font-family: 'Playfair Display', serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+  }
+  .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--cream);
+    font-size: 1.6rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .modal-body label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--green);
+    margin: 14px 0 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .modal-body label:first-of-type { margin-top: 0; }
+  .modal-body input[type="text"],
+  .modal-body input[type="password"],
+  .modal-body input[type="date"],
+  .modal-body select,
+  .modal-body textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1.5px solid rgba(45,90,39,0.25);
+    background: white;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    color: #222;
+    box-sizing: border-box;
+  }
+  .modal-body textarea {
+    resize: vertical;
+    min-height: 140px;
+    line-height: 1.5;
+  }
+  .modal-help {
+    font-size: 0.78rem;
+    color: #555;
+    line-height: 1.55;
+    margin-bottom: 8px;
+  }
+  .modal-help code {
+    background: #efe9d9;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
+  .modal-footer {
+    padding: 12px 16px;
+    background: #f5f0e8;
+    border-top: 1px solid #e0d8c8;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .modal-footer-right {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .modal-footer .btn-secondary {
+    background: #ddd6c8;
+    color: #333;
+    flex: 0 0 auto;
+    padding: 9px 14px;
+  }
+  .modal-footer .btn-primary {
+    flex: 0 0 auto;
+    padding: 9px 18px;
+  }
+
 </style>
 </head>
 <body>
@@ -221,7 +479,8 @@
 </header>
 
 <div class="tab-bar">
-  <button class="tab active" onclick="showSection('setup', this)">Setup</button>
+  <button class="tab active" onclick="showSection('log', this)">Log</button>
+  <button class="tab" onclick="showSection('setup', this)">Setup</button>
   <button class="tab" onclick="showSection('swingthoughts', this)">💭 Swing Thoughts</button>
   <button class="tab" onclick="showSection('backswing', this)">Backswing</button>
   <button class="tab" onclick="showSection('downswing', this)">Downswing</button>
@@ -234,8 +493,32 @@
 
 <div class="content">
 
+    <!-- LOG -->
+  <div id="log" class="section active">
+    <div class="sync-status" onclick="openSyncSettings()">
+      <span id="sync-status-text">Sync: not configured</span>
+      <span class="sync-chevron">&rsaquo;</span>
+    </div>
+
+    <div class="log-actions">
+      <button class="btn-primary" onclick="openEntryForm()">+ New entry</button>
+      <button class="btn-secondary" onclick="exportLog()">Export</button>
+    </div>
+
+    <input type="text" class="search-box" id="log-search" placeholder="Search your log..." oninput="renderEntries()">
+
+    <div class="log-filters">
+      <button class="filter-chip active" onclick="setFilter('all', this)">All</button>
+      <button class="filter-chip" onclick="setFilter('lesson', this)">Lessons</button>
+      <button class="filter-chip" onclick="setFilter('range', this)">Range</button>
+      <button class="filter-chip" onclick="setFilter('thought', this)">Thoughts</button>
+    </div>
+
+    <div class="entries-list" id="entries-list"></div>
+  </div>
+
   <!-- SETUP -->
-  <div id="setup" class="section active">
+  <div id="setup" class="section">
     <div class="card gold">
       <div class="card-title"><span class="icon">📍</span> Ball Position by Club</div>
       <div class="tip"><div class="tip-dot"></div><div class="tip-text"><span class="tip-label">Discipline:</span> ball position is a fixed fundamental — measured and identical every time, not a feeling. It does not drift back on its own. If it moved, you moved it</div></div>
@@ -607,6 +890,9 @@
 </div>
 
 <script>
+  // ============================================================
+  // Tab and Fix-panel switching (existing behavior, preserved)
+  // ============================================================
   function showSection(id, btn) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -621,6 +907,567 @@
     document.getElementById('fix-' + type).classList.add('visible');
     document.getElementById('fix-' + type).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+
+  // ============================================================
+  // LOG feature: storage, CRUD, render, export, sync
+  //
+  // WHY the key prefix matters: cgramlich.github.io hosts more than one app
+  // (Workout Log uses rcc-* keys). localStorage is scoped to the origin, not
+  // the path, so unique prefixes are mandatory or apps would corrupt each
+  // other's data.
+  // ============================================================
+  const KEY_DATA = 'golf-log-v1';
+  const KEY_SYNC = 'golf-sync-token';
+  const KEY_LAST = 'golf-sync-last';
+
+  // Whole-app state mirrored to one localStorage key. One JSON object, one key.
+  let state = { version: 1, entries: [] };
+  let currentFilter = 'all';
+  let editingId = null;
+  let syncTimer = null;
+  let syncInFlight = false;
+  let lastSyncError = null;
+
+  // ---------- local storage ----------
+  function loadLocal() {
+    try {
+      const raw = localStorage.getItem(KEY_DATA);
+      if (raw) state = normalizeState(JSON.parse(raw));
+    } catch (err) {
+      console.error('[log] loadLocal failed', err);
+    }
+  }
+
+  function saveLocal() {
+    try {
+      localStorage.setItem(KEY_DATA, JSON.stringify(state));
+    } catch (err) {
+      console.error('[log] saveLocal failed', err);
+    }
+  }
+
+  // Defensive: tolerate older shapes so saved entries keep working as the
+  // schema evolves. Every entry gets full fields with safe defaults.
+  function normalizeState(raw) {
+    if (!raw || typeof raw !== 'object') return { version: 1, entries: [] };
+    const validTypes = { lesson: 1, range: 1, thought: 1 };
+    const entries = Array.isArray(raw.entries) ? raw.entries.map(e => ({
+      id:         e.id || makeId(),
+      type:       validTypes[e.type] ? e.type : 'thought',
+      date:       e.date || todayISO(),
+      title:      typeof e.title === 'string' ? e.title : '',
+      body:       typeof e.body === 'string' ? e.body : '',
+      instructor: typeof e.instructor === 'string' ? e.instructor : '',
+      createdAt:  e.createdAt || new Date().toISOString(),
+      updatedAt:  e.updatedAt || e.createdAt || new Date().toISOString(),
+      deleted:    !!e.deleted
+    })) : [];
+    return { version: 1, entries };
+  }
+
+  function makeId() {
+    return 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  // ---------- entry editor (modal) ----------
+  function openEntryForm(id) {
+    editingId = id || null;
+    if (id) {
+      const e = state.entries.find(x => x.id === id);
+      if (!e) return;
+      document.getElementById('entry-modal-title').textContent = 'Edit entry';
+      document.getElementById('entry-type').value = e.type;
+      document.getElementById('entry-date').value = e.date;
+      document.getElementById('entry-title').value = e.title;
+      document.getElementById('entry-body').value = e.body;
+      document.getElementById('entry-instructor').value = e.instructor || '';
+      document.getElementById('entry-delete-btn').style.display = 'inline-block';
+    } else {
+      document.getElementById('entry-modal-title').textContent = 'New entry';
+      document.getElementById('entry-type').value = 'lesson';
+      document.getElementById('entry-date').value = todayISO();
+      document.getElementById('entry-title').value = '';
+      document.getElementById('entry-body').value = '';
+      document.getElementById('entry-instructor').value = '';
+      document.getElementById('entry-delete-btn').style.display = 'none';
+    }
+    onEntryTypeChange();
+    document.getElementById('entry-modal').classList.add('visible');
+  }
+
+  function closeEntryForm() {
+    document.getElementById('entry-modal').classList.remove('visible');
+    editingId = null;
+  }
+
+  function onEntryTypeChange() {
+    const type = document.getElementById('entry-type').value;
+    // Instructor field only makes sense for a lesson; hide it otherwise so
+    // the form stays focused.
+    document.getElementById('entry-instructor-row').style.display = (type === 'lesson') ? '' : 'none';
+  }
+
+  function saveEntry() {
+    const type        = document.getElementById('entry-type').value;
+    const date        = document.getElementById('entry-date').value || todayISO();
+    const title       = document.getElementById('entry-title').value.trim();
+    const body        = document.getElementById('entry-body').value.trim();
+    const instructor  = document.getElementById('entry-instructor').value.trim();
+    if (!title && !body) {
+      alert('Add a title or some notes before saving.');
+      return;
+    }
+    const now = new Date().toISOString();
+    if (editingId) {
+      const e = state.entries.find(x => x.id === editingId);
+      if (e) {
+        e.type = type;
+        e.date = date;
+        e.title = title;
+        e.body = body;
+        e.instructor = (type === 'lesson') ? instructor : '';
+        e.updatedAt = now;
+        e.deleted = false;
+      }
+    } else {
+      state.entries.push({
+        id: makeId(),
+        type, date, title, body,
+        instructor: (type === 'lesson') ? instructor : '',
+        createdAt: now,
+        updatedAt: now,
+        deleted: false
+      });
+    }
+    saveLocal();
+    renderEntries();
+    closeEntryForm();
+    scheduleSync();
+  }
+
+  function deleteEntry() {
+    if (!editingId) return;
+    if (!confirm('Delete this entry? It will be removed from this device and from sync.')) return;
+    const e = state.entries.find(x => x.id === editingId);
+    if (e) {
+      // Tombstone, not real removal: a deletion has to propagate via sync, or
+      // another device will push the entry back next time it merges.
+      e.deleted = true;
+      e.updatedAt = new Date().toISOString();
+    }
+    saveLocal();
+    renderEntries();
+    closeEntryForm();
+    scheduleSync();
+  }
+
+  // ---------- filter / search / render ----------
+  function setFilter(type, btn) {
+    currentFilter = type;
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    renderEntries();
+  }
+
+  function renderEntries() {
+    const search = (document.getElementById('log-search').value || '').trim().toLowerCase();
+    const list = document.getElementById('entries-list');
+
+    let entries = state.entries.filter(e => !e.deleted);
+    if (currentFilter !== 'all') entries = entries.filter(e => e.type === currentFilter);
+    if (search) {
+      entries = entries.filter(e =>
+        (e.title && e.title.toLowerCase().includes(search)) ||
+        (e.body && e.body.toLowerCase().includes(search)) ||
+        (e.instructor && e.instructor.toLowerCase().includes(search))
+      );
+    }
+    // Newest first by date, then by createdAt as tiebreaker.
+    entries.sort((a, b) =>
+      (b.date || '').localeCompare(a.date || '') ||
+      (b.createdAt || '').localeCompare(a.createdAt || '')
+    );
+
+    if (entries.length === 0) {
+      list.innerHTML = '<div class="empty-state">No entries yet.<br>Tap <strong>+ New entry</strong> to log a lesson, range session, or quick thought.</div>';
+      return;
+    }
+    list.innerHTML = entries.map(entryCardHtml).join('');
+  }
+
+  function entryCardHtml(e) {
+    const typeLabel = ({ lesson: 'Lesson', range: 'Range session', thought: 'Thought' })[e.type] || 'Entry';
+    const instructorChunk = (e.type === 'lesson' && e.instructor)
+      ? ' <span class="entry-instructor">' + escapeHtml(e.instructor) + '</span>'
+      : '';
+    const bodyHtml = e.body
+      ? '<div class="entry-body">' + escapeHtml(e.body).replace(/\n/g, '<br>') + '</div>'
+      : '';
+    return ''
+      + '<div class="entry-card" onclick="openEntryForm(\'' + e.id + '\')">'
+      +   '<div class="entry-meta">'
+      +     '<span class="entry-type-badge type-' + e.type + '">' + typeLabel + '</span>'
+      +     '<span class="entry-date">' + escapeHtml(e.date) + instructorChunk + '</span>'
+      +   '</div>'
+      +   (e.title ? '<div class="entry-title">' + escapeHtml(e.title) + '</div>' : '')
+      +   bodyHtml
+      + '</div>';
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // ---------- export ----------
+  function exportLog() {
+    const entries = state.entries.filter(e => !e.deleted)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const today = todayISO();
+    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
+    const lines = ['# Golf Log', '', '*Exported ' + today + ' \u00b7 ' + entries.length + ' entries*', ''];
+    for (const e of entries) {
+      const heading = (e.title && e.title.trim()) ? e.title.trim() : typeLabels[e.type];
+      lines.push('## ' + e.date + ' \u2014 ' + heading);
+      const meta = [typeLabels[e.type]];
+      if (e.type === 'lesson' && e.instructor) meta.push('Instructor: ' + e.instructor);
+      lines.push('*' + meta.join(' \u00b7 ') + '*');
+      lines.push('');
+      if (e.body) {
+        lines.push(e.body);
+        lines.push('');
+      }
+      lines.push('---');
+      lines.push('');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'golf-log-' + today + '.md';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // ---------- sync (GitHub Contents API: pull-merge-push with sha) ----------
+  function getSyncConfig() {
+    let cfg = {};
+    try { cfg = JSON.parse(localStorage.getItem(KEY_SYNC) || '{}'); } catch { cfg = {}; }
+    return {
+      repo: cfg.repo || '',
+      path: cfg.path || 'data.json',
+      token: cfg.token || ''
+    };
+  }
+
+  function setSyncConfig(repo, path, token) {
+    // Token lives only in this browser; it is never rendered into HTML and
+    // is never committed to either repo.
+    localStorage.setItem(KEY_SYNC, JSON.stringify({ repo, path, token }));
+  }
+
+  function clearSyncConfig() {
+    localStorage.removeItem(KEY_SYNC);
+    localStorage.removeItem(KEY_LAST);
+  }
+
+  function openSyncSettings() {
+    const cfg = getSyncConfig();
+    document.getElementById('sync-repo').value = cfg.repo;
+    document.getElementById('sync-path').value = cfg.path;
+    document.getElementById('sync-token').value = cfg.token;
+    const last = localStorage.getItem(KEY_LAST);
+    let detail = last
+      ? 'Last synced: ' + new Date(last).toLocaleString()
+      : 'Not synced yet on this device.';
+    if (lastSyncError) detail += '  |  Last error: ' + lastSyncError;
+    document.getElementById('sync-status-detail').textContent = detail;
+    document.getElementById('sync-modal').classList.add('visible');
+  }
+
+  function closeSyncSettings() {
+    document.getElementById('sync-modal').classList.remove('visible');
+  }
+
+  async function saveSyncSettings() {
+    const repo = document.getElementById('sync-repo').value.trim();
+    const path = document.getElementById('sync-path').value.trim() || 'data.json';
+    const token = document.getElementById('sync-token').value.trim();
+    if (!repo || !token) {
+      alert('Need both the repo (owner/name) and a Personal Access Token.');
+      return;
+    }
+    if (!/^[^\/]+\/[^\/]+$/.test(repo)) {
+      alert('Repo must be in the form "owner/name", e.g. cgramlich/golf-data.');
+      return;
+    }
+    setSyncConfig(repo, path, token);
+    updateSyncStatus();
+    try {
+      await runSync();
+      closeSyncSettings();
+    } catch (err) {
+      alert('Sync failed: ' + err.message);
+      console.error('[sync] save+sync failed', err);
+    }
+  }
+
+  function disconnectSync() {
+    if (!confirm('Disconnect sync? Your local log stays on this device; only the cloud connection is cleared.')) return;
+    clearSyncConfig();
+    closeSyncSettings();
+    updateSyncStatus();
+  }
+
+  function updateSyncStatus() {
+    const cfg = getSyncConfig();
+    const text = document.getElementById('sync-status-text');
+    const last = localStorage.getItem(KEY_LAST);
+    if (!cfg.token) {
+      text.textContent = 'Sync: not configured';
+    } else if (syncInFlight) {
+      text.textContent = 'Sync: syncing...';
+    } else if (lastSyncError) {
+      text.textContent = 'Sync: error - tap to fix';
+    } else if (last) {
+      text.textContent = 'Sync: ' + timeAgo(new Date(last));
+    } else {
+      text.textContent = 'Sync: connected (not yet synced)';
+    }
+  }
+
+  function timeAgo(d) {
+    const sec = Math.round((Date.now() - d.getTime()) / 1000);
+    if (sec < 60) return 'just now';
+    if (sec < 3600) return Math.round(sec / 60) + 'm ago';
+    if (sec < 86400) return Math.round(sec / 3600) + 'h ago';
+    return Math.round(sec / 86400) + 'd ago';
+  }
+
+  function scheduleSync() {
+    if (!getSyncConfig().token) return;
+    if (syncTimer) clearTimeout(syncTimer);
+    // Debounce: bursts of saves collapse to a single network round-trip.
+    syncTimer = setTimeout(() => {
+      runSync().catch(err => console.error('[sync] debounced sync failed', err));
+    }, 1500);
+  }
+
+  async function runSync(retryCount) {
+    retryCount = retryCount || 0;
+    if (syncInFlight) return;
+    const cfg = getSyncConfig();
+    if (!cfg.repo || !cfg.token) return;
+    const slash = cfg.repo.indexOf('/');
+    if (slash < 1) throw new Error('Repo must be owner/name');
+    const owner = cfg.repo.slice(0, slash);
+    const name = cfg.repo.slice(slash + 1);
+
+    syncInFlight = true;
+    updateSyncStatus();
+    try {
+      const apiUrl = 'https://api.github.com/repos/' + owner + '/' + name + '/contents/' + encodeURIComponent(cfg.path);
+      const authHeaders = {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'Bearer ' + cfg.token,
+        'X-GitHub-Api-Version': '2022-11-28'
+      };
+
+      // 1. Pull remote (with its sha for the conditional PUT)
+      let remoteSha = null;
+      let remoteState = { version: 1, entries: [] };
+      const getResp = await fetch(apiUrl, { headers: authHeaders });
+      if (getResp.status === 200) {
+        const file = await getResp.json();
+        remoteSha = file.sha;
+        try {
+          const json = base64ToUtf8((file.content || '').replace(/\n/g, ''));
+          remoteState = normalizeState(JSON.parse(json));
+        } catch (err) {
+          console.warn('[sync] could not parse remote; treating as empty', err);
+        }
+      } else if (getResp.status === 404) {
+        // First sync ever for this repo. PUT below will create the file.
+      } else {
+        const txt = await getResp.text();
+        throw new Error('GET ' + getResp.status + ': ' + txt.slice(0, 200));
+      }
+
+      // 2. Merge: union by id; the newer updatedAt wins; tombstones survive.
+      const merged = mergeStates(state, remoteState);
+      state = merged;
+      saveLocal();
+      renderEntries();
+
+      // 3. Push merged file
+      const jsonStr = JSON.stringify(merged, null, 2);
+      const body = {
+        message: 'sync golf log ' + new Date().toISOString(),
+        content: utf8ToBase64(jsonStr)
+      };
+      if (remoteSha) body.sha = remoteSha;
+      const putResp = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (putResp.status === 409 && retryCount < 1) {
+        // Another device wrote first. Re-pull, re-merge, re-push once.
+        syncInFlight = false;
+        return runSync(retryCount + 1);
+      }
+      if (!putResp.ok) {
+        const txt = await putResp.text();
+        throw new Error('PUT ' + putResp.status + ': ' + txt.slice(0, 200));
+      }
+      localStorage.setItem(KEY_LAST, new Date().toISOString());
+      lastSyncError = null;
+    } catch (err) {
+      lastSyncError = err.message || String(err);
+      throw err;
+    } finally {
+      syncInFlight = false;
+      updateSyncStatus();
+    }
+  }
+
+  function mergeStates(local, remote) {
+    const byId = {};
+    for (const e of (remote.entries || [])) byId[e.id] = e;
+    for (const e of (local.entries || [])) {
+      const prev = byId[e.id];
+      if (!prev) {
+        byId[e.id] = e;
+      } else {
+        const lt = new Date(e.updatedAt || 0).getTime();
+        const rt = new Date(prev.updatedAt || 0).getTime();
+        if (lt >= rt) byId[e.id] = e;
+      }
+    }
+    return { version: 1, entries: Object.values(byId) };
+  }
+
+  // UTF-8-safe base64. atob/btoa are latin1 only, so we go through TextEncoder
+  // to preserve any non-ASCII the user types (em dashes, apostrophes, etc.).
+  function utf8ToBase64(s) {
+    const bytes = new TextEncoder().encode(s);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function base64ToUtf8(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  function closeOnBackdrop(ev) {
+    if (ev.target && ev.target.classList && ev.target.classList.contains('modal-overlay')) {
+      const id = ev.currentTarget.id;
+      if (id === 'entry-modal') closeEntryForm();
+      else if (id === 'sync-modal') closeSyncSettings();
+    }
+  }
+
+  // ---------- init ----------
+  document.addEventListener('DOMContentLoaded', () => {
+    loadLocal();
+    renderEntries();
+    updateSyncStatus();
+    // Auto-sync on launch if configured. Errors are logged; the UI keeps
+    // working with local data either way.
+    if (getSyncConfig().token) {
+      runSync().catch(err => console.error('[sync] initial sync failed', err));
+    }
+  });
 </script>
+<div class="modal-overlay" id="entry-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="entry-modal-title">New entry</h3>
+      <button class="modal-close" onclick="closeEntryForm()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label>Type</label>
+      <select id="entry-type" onchange="onEntryTypeChange()">
+        <option value="lesson">Lesson</option>
+        <option value="range">Range session</option>
+        <option value="thought">Quick thought</option>
+      </select>
+
+      <label>Date</label>
+      <input type="date" id="entry-date">
+
+      <label>Title</label>
+      <input type="text" id="entry-title" placeholder="Short summary">
+
+      <div id="entry-instructor-row">
+        <label>Instructor</label>
+        <input type="text" id="entry-instructor" placeholder="Who taught you">
+      </div>
+
+      <label>Notes</label>
+      <textarea id="entry-body" rows="10" placeholder="What you want to remember from this..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="entry-delete-btn" style="display:none" onclick="deleteEntry()">Delete</button>
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeEntryForm()">Cancel</button>
+        <button class="btn-primary" onclick="saveEntry()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="sync-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Sync Settings</h3>
+      <button class="modal-close" onclick="closeSyncSettings()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-help">
+        Sync your log across devices using a private GitHub repo and a fine-grained
+        Personal Access Token. The token lives only in this browser — never
+        committed, never uploaded with the app.
+      </p>
+      <p class="modal-help">
+        <strong>One-time setup:</strong> create a private repo on GitHub (for example
+        <code>golf-data</code>), then create a fine-grained PAT scoped to only that
+        repo with <strong>Contents: Read and write</strong>. Paste the values below.
+      </p>
+
+      <label>Repo (owner/name)</label>
+      <input type="text" id="sync-repo" placeholder="cgramlich/golf-data" autocapitalize="off" autocorrect="off">
+
+      <label>File path inside the repo</label>
+      <input type="text" id="sync-path" value="data.json" autocapitalize="off" autocorrect="off">
+
+      <label>Personal Access Token</label>
+      <input type="password" id="sync-token" placeholder="github_pat_..." autocapitalize="off" autocorrect="off">
+
+      <p class="modal-help" id="sync-status-detail"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" onclick="disconnectSync()">Disconnect</button>
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeSyncSettings()">Cancel</button>
+        <button class="btn-primary" onclick="saveSyncSettings()">Save &amp; sync</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
