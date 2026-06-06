@@ -469,6 +469,58 @@
     padding: 9px 18px;
   }
 
+
+  /* ===== AI analysis feature ===== */
+  .ai-status {
+    background: rgba(0,0,0,0.2);
+    color: var(--cream);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  /* Three buttons in the log-actions row need slightly tighter padding so
+     they all fit on a phone without wrapping. */
+  .log-actions .btn-primary,
+  .log-actions .btn-secondary {
+    padding: 11px 10px;
+    font-size: 0.82rem;
+  }
+
+  /* Analysis result modal body */
+  .analysis-status {
+    text-align: center;
+    color: #555;
+    padding: 30px 20px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .analysis-body {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.92rem;
+    line-height: 1.65;
+    color: #222;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .analysis-error {
+    color: var(--error-red);
+    background: rgba(168,53,45,0.08);
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .analysis-error strong { display: block; margin-bottom: 4px; }
+
+  /* Small visual cue that analysis is in progress on the AI status bar */
+  .ai-status.busy { opacity: 0.7; }
+
 </style>
 </head>
 <body>
@@ -500,9 +552,15 @@
       <span class="sync-chevron">&rsaquo;</span>
     </div>
 
+    <div class="ai-status" onclick="openAISettings()">
+      <span id="ai-status-text">AI: not configured</span>
+      <span class="sync-chevron">&rsaquo;</span>
+    </div>
+
     <div class="log-actions">
       <button class="btn-primary" onclick="openEntryForm()">+ New entry</button>
       <button class="btn-secondary" onclick="exportLog()">Export</button>
+      <button class="btn-secondary" onclick="analyzeLog()">Analyze</button>
     </div>
 
     <input type="text" class="search-box" id="log-search" placeholder="Search your log..." oninput="renderEntries()">
@@ -1391,6 +1449,307 @@
       runSync().catch(err => console.error('[sync] initial sync failed', err));
     }
   });
+
+  // ============================================================
+  // AI ANALYSIS: direct Anthropic API call from the browser.
+  //
+  // WHY this is safe on a public GitHub Pages site: the API key is the
+  // USER'S OWN key, kept only in their browser's localStorage. It is never
+  // embedded in the deployed HTML and never shared. Same security model as
+  // the GitHub PAT used for sync.
+  //
+  // The 'anthropic-dangerous-direct-browser-access: true' header is
+  // required by Anthropic to allow browser-origin requests; without it the
+  // API refuses CORS.
+  // ============================================================
+  const KEY_AI = 'golf-ai-config';
+
+  function getAIConfig() {
+    let cfg = {};
+    try { cfg = JSON.parse(localStorage.getItem(KEY_AI) || '{}'); } catch { cfg = {}; }
+    return {
+      key: cfg.key || '',
+      model: cfg.model || 'claude-sonnet-4-6'
+    };
+  }
+
+  function setAIConfig(key, model) {
+    localStorage.setItem(KEY_AI, JSON.stringify({ key: key, model: model }));
+  }
+
+  function clearAIConfig() {
+    localStorage.removeItem(KEY_AI);
+  }
+
+  function updateAIStatus() {
+    const cfg = getAIConfig();
+    const el = document.getElementById('ai-status-text');
+    if (!el) return;
+    if (!cfg.key) {
+      el.textContent = 'AI: not configured';
+    } else {
+      // Display the model family, not the key. Never echo the key anywhere.
+      const fam = cfg.model.indexOf('haiku') !== -1 ? 'Haiku'
+                : cfg.model.indexOf('opus')  !== -1 ? 'Opus'
+                : 'Sonnet';
+      el.textContent = 'AI: ' + fam + ' connected';
+    }
+  }
+
+  function openAISettings() {
+    const cfg = getAIConfig();
+    document.getElementById('ai-key').value = cfg.key;
+    document.getElementById('ai-model').value = cfg.model;
+    document.getElementById('ai-status-detail').textContent = cfg.key
+      ? 'Connected. Tap Analyze inside an entry or the Analyze button in the actions row.'
+      : 'Not configured yet on this device.';
+    document.getElementById('ai-modal').classList.add('visible');
+  }
+
+  function closeAISettings() {
+    document.getElementById('ai-modal').classList.remove('visible');
+  }
+
+  function saveAISettings() {
+    const key = document.getElementById('ai-key').value.trim();
+    const model = document.getElementById('ai-model').value;
+    if (!key) {
+      alert('Paste your Anthropic API key first.');
+      return;
+    }
+    // Defensive: warn (but allow) if the prefix doesn't look right.
+    if (key.indexOf('sk-ant-') !== 0) {
+      if (!confirm('That key does not start with "sk-ant-". Save it anyway?')) return;
+    }
+    setAIConfig(key, model);
+    closeAISettings();
+    updateAIStatus();
+  }
+
+  function disconnectAI() {
+    if (!confirm('Disconnect AI? The key will be cleared from this device only.')) return;
+    clearAIConfig();
+    closeAISettings();
+    updateAIStatus();
+  }
+
+  // ---------- Anthropic API call ----------
+  async function callAnthropic(userText, systemText) {
+    const cfg = getAIConfig();
+    if (!cfg.key) {
+      throw new Error('No API key configured. Tap the AI bar to set one.');
+    }
+    const body = {
+      model: cfg.model,
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: userText }]
+    };
+    if (systemText) body.system = systemText;
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': cfg.key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      let detail = '';
+      try {
+        const j = await resp.json();
+        detail = (j && j.error && j.error.message) ? j.error.message : JSON.stringify(j);
+      } catch {
+        try { detail = await resp.text(); } catch { detail = ''; }
+      }
+      throw new Error('API ' + resp.status + ': ' + (detail || 'unknown error').slice(0, 300));
+    }
+
+    const data = await resp.json();
+    const texts = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
+    return texts.join('\n\n').trim();
+  }
+
+  // ---------- Per-entry analysis ----------
+  // Triggered from the Analyze button in the entry-modal footer. We capture
+  // the form contents first (so they aren't lost when the modal closes),
+  // then call saveEntry() to persist them, then close the entry modal and
+  // open the analysis modal with the result.
+  async function analyzeEntryFromForm() {
+    if (!getAIConfig().key) {
+      alert('Connect your Anthropic API key first. Tap the AI bar at the top of the Log.');
+      return;
+    }
+    const title = document.getElementById('entry-title').value.trim();
+    const body = document.getElementById('entry-body').value.trim();
+    if (!title && !body) {
+      alert('Add a title or notes before analyzing.');
+      return;
+    }
+    // Snapshot the form. This is what we'll feed to the model. We snapshot
+    // BEFORE saveEntry() because that call closes the modal.
+    const draft = {
+      type: document.getElementById('entry-type').value,
+      date: document.getElementById('entry-date').value || todayISO(),
+      title: title,
+      body: body,
+      instructor: document.getElementById('entry-instructor').value.trim()
+    };
+    // Persist so the user doesn't lose their notes if the API call fails.
+    saveEntry();
+    await analyzeEntry(draft);
+  }
+
+  async function analyzeEntry(entry) {
+    openAnalysis('Analyzing this entry...');
+    const typeLabel = ({
+      lesson: 'lesson', range: 'range session', thought: 'quick thought'
+    })[entry.type] || 'entry';
+
+    const lines = [];
+    lines.push('Here is a ' + typeLabel + ' entry from my golf log.');
+    lines.push('');
+    lines.push('Date: ' + entry.date);
+    if (entry.instructor) lines.push('Instructor: ' + entry.instructor);
+    if (entry.title) lines.push('Title: ' + entry.title);
+    lines.push('');
+    lines.push('Notes:');
+    lines.push(entry.body || '(none)');
+    lines.push('');
+    lines.push('Analyze this entry. Give me:');
+    lines.push('1. Key takeaways (1-3 bullets)');
+    lines.push('2. Concrete things to practice or watch for next time (1-3 bullets)');
+    lines.push('3. Anything notable to flag (errors, contradictions, blind spots)');
+    lines.push('');
+    lines.push('Be direct, specific, and honest. No filler. No general golf cliches.');
+
+    const system = 'You are a serious golf coach helping a dedicated amateur improve. Your style is direct, specific, and honest. You favor fundamentals over fashionable tips. You keep answers tight.';
+
+    try {
+      const result = await callAnthropic(lines.join('\n'), system);
+      showAnalysisResult(result);
+    } catch (err) {
+      showAnalysisError(err.message || String(err));
+    }
+  }
+
+  // ---------- Whole-log analysis ----------
+  async function analyzeLog() {
+    if (!getAIConfig().key) {
+      alert('Connect your Anthropic API key first. Tap the AI bar at the top of the Log.');
+      return;
+    }
+    const entries = state.entries.filter(e => !e.deleted);
+    if (entries.length === 0) {
+      alert('No entries to analyze yet. Add a lesson, range session, or thought first.');
+      return;
+    }
+
+    openAnalysis('Analyzing your full log (' + entries.length + ' entries)...');
+
+    // Oldest first so the model reads a chronological timeline and can spot
+    // progression / regression patterns naturally.
+    const sorted = entries.slice().sort((a, b) =>
+      (a.date || '').localeCompare(b.date || '')
+    );
+    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
+
+    const logText = sorted.map(function(e) {
+      const head = e.date + ' \u2014 ' + (typeLabels[e.type] || 'Entry')
+                 + (e.title ? ': ' + e.title : '');
+      const meta = (e.type === 'lesson' && e.instructor)
+        ? '\n(Instructor: ' + e.instructor + ')'
+        : '';
+      return head + meta + '\n' + (e.body || '(no notes)');
+    }).join('\n\n---\n\n');
+
+    const userMsg = [
+      'Here is my complete golf log, ' + sorted.length + ' entries, ordered oldest to newest:',
+      '',
+      logText,
+      '',
+      'Review the full timeline and give me:',
+      '1. Overall themes (what keeps coming up)',
+      '2. What is improving (signs of real progress)',
+      '3. What is stuck (recurring problems, contradictions in advice, blind spots)',
+      '4. Top 2-3 things to prioritize working on next',
+      '5. Anything worth a second look',
+      '',
+      'Be direct, specific, and honest. No filler.'
+    ].join('\n');
+
+    const system = 'You are a serious golf coach reviewing a player\'s log to spot real patterns over time. Direct, specific, honest. Fundamentals over fashion. Tight prose.';
+
+    try {
+      const result = await callAnthropic(userMsg, system);
+      showAnalysisResult(result);
+    } catch (err) {
+      showAnalysisError(err.message || String(err));
+    }
+  }
+
+  // ---------- Analysis result modal ----------
+  let lastAnalysis = '';
+
+  function openAnalysis(loadingMsg) {
+    document.getElementById('analysis-modal-title').textContent = 'Analysis';
+    document.getElementById('analysis-content').innerHTML =
+      '<div class="analysis-status">' + escapeHtml(loadingMsg) + '</div>';
+    document.getElementById('analysis-modal').classList.add('visible');
+  }
+
+  function showAnalysisResult(text) {
+    lastAnalysis = text || '';
+    document.getElementById('analysis-content').innerHTML =
+      '<div class="analysis-body">' + escapeHtml(lastAnalysis) + '</div>';
+  }
+
+  function showAnalysisError(message) {
+    lastAnalysis = '';
+    document.getElementById('analysis-content').innerHTML =
+      '<div class="analysis-error"><strong>Analysis failed</strong>' + escapeHtml(message) + '</div>';
+  }
+
+  function closeAnalysis() {
+    document.getElementById('analysis-modal').classList.remove('visible');
+  }
+
+  async function copyAnalysis() {
+    if (!lastAnalysis) {
+      alert('Nothing to copy yet.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lastAnalysis);
+      alert('Analysis copied to clipboard.');
+    } catch (err) {
+      alert('Copy failed: ' + (err.message || String(err)));
+    }
+  }
+
+  // ---------- Patch closeOnBackdrop to handle the new modals ----------
+  // The original handles entry-modal and sync-modal. We wrap it so that
+  // ai-modal and analysis-modal also close on backdrop tap, without
+  // touching the original implementation.
+  (function extendBackdrop() {
+    const original = window.closeOnBackdrop;
+    window.closeOnBackdrop = function(ev) {
+      if (ev && ev.target && ev.target.classList && ev.target.classList.contains('modal-overlay')) {
+        const id = ev.currentTarget && ev.currentTarget.id;
+        if (id === 'ai-modal') return closeAISettings();
+        if (id === 'analysis-modal') return closeAnalysis();
+      }
+      if (typeof original === 'function') return original(ev);
+    };
+  })();
+
+  // ---------- Init: paint AI status on load ----------
+  // The existing DOMContentLoaded handler renders entries and runs sync;
+  // we add a second listener so the AI bar reflects current state too.
+  document.addEventListener('DOMContentLoaded', updateAIStatus);
 </script>
 <div class="modal-overlay" id="entry-modal" onclick="closeOnBackdrop(event)">
   <div class="modal" onclick="event.stopPropagation()">
@@ -1423,6 +1782,7 @@
     <div class="modal-footer">
       <button class="btn-danger" id="entry-delete-btn" style="display:none" onclick="deleteEntry()">Delete</button>
       <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="analyzeEntryFromForm()">Analyze</button>
         <button class="btn-secondary" onclick="closeEntryForm()">Cancel</button>
         <button class="btn-primary" onclick="saveEntry()">Save</button>
       </div>
@@ -1464,6 +1824,69 @@
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeSyncSettings()">Cancel</button>
         <button class="btn-primary" onclick="saveSyncSettings()">Save &amp; sync</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ai-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>AI Settings</h3>
+      <button class="modal-close" onclick="closeAISettings()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-help">
+        Connect your own Anthropic API key to enable in-app analysis. The key lives
+        only in this browser — never committed, never uploaded, never visible in the
+        public repo.
+      </p>
+      <p class="modal-help">
+        <strong>One-time setup:</strong> sign in at <code>console.anthropic.com</code>
+        (separate account from claude.ai), add a payment method, go to <strong>API Keys</strong>,
+        create a new key, and paste it below.
+      </p>
+      <p class="modal-help">
+        Each Analyze tap costs roughly $0.01–$0.05 depending on model and how much
+        text is involved. Content you analyze is sent to Anthropic's API; per their
+        policy, API content is not used to train models.
+      </p>
+
+      <label>Anthropic API key</label>
+      <input type="password" id="ai-key" placeholder="sk-ant-..." autocapitalize="off" autocorrect="off">
+
+      <label>Model</label>
+      <select id="ai-model">
+        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — cheapest, fastest</option>
+        <option value="claude-sonnet-4-6" selected>Claude Sonnet 4.6 — balanced (default)</option>
+        <option value="claude-opus-4-8">Claude Opus 4.8 — best quality, most expensive</option>
+      </select>
+
+      <p class="modal-help" id="ai-status-detail"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" onclick="disconnectAI()">Disconnect</button>
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeAISettings()">Cancel</button>
+        <button class="btn-primary" onclick="saveAISettings()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="analysis-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="analysis-modal-title">Analysis</h3>
+      <button class="modal-close" onclick="closeAnalysis()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="analysis-content"></div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-right" style="margin-left:auto">
+        <button class="btn-secondary" onclick="copyAnalysis()">Copy</button>
+        <button class="btn-primary" onclick="closeAnalysis()">Done</button>
       </div>
     </div>
   </div>
