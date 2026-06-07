@@ -640,6 +640,47 @@
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
 
+
+  /* ===== AI conversations / saved analyses ===== */
+  .analysis-body { margin-bottom: 10px; }
+  #convo-followup { margin-top: 14px; }
+  #convo-input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1.5px solid rgba(45,90,39,0.25);
+    background: white;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    color: #222;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 46px;
+  }
+  .convo-q {
+    background: rgba(45,90,39,0.10);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin: 14px 0 4px;
+    font-size: 0.9rem;
+    color: var(--green);
+    font-weight: 600;
+  }
+  .convo-q::before { content: 'You: '; opacity: 0.55; }
+  .saved-analyses-btn {
+    width: 100%;
+    margin-bottom: 14px;
+    border: 1.5px solid rgba(201,168,76,0.5);
+    background: transparent;
+    color: var(--cream);
+    border-radius: 12px;
+    padding: 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 600;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+
 </style>
 </head>
 <body>
@@ -689,6 +730,8 @@
       <button class="filter-chip" onclick="setFilter('range', this)">Range</button>
       <button class="filter-chip" onclick="setFilter('thought', this)">Thoughts</button>
     </div>
+
+    <button class="saved-analyses-btn" onclick="openSavedList()">Saved analyses (<span id="saved-count">0</span>)</button>
 
     <div class="entries-list" id="entries-list"></div>
   </div>
@@ -1181,7 +1224,22 @@
       updatedAt:  e.updatedAt || e.createdAt || new Date().toISOString(),
       deleted:    !!e.deleted
     })) : [];
-    return { version: 1, entries };
+    // Saved AI analyses are conversations: a list of {role, content} messages
+    // plus metadata. Anything loaded from storage was, by definition, saved.
+    const analyses = Array.isArray(raw.analyses) ? raw.analyses.map(a => ({
+      id:        a.id || makeId(),
+      title:     typeof a.title === 'string' ? a.title : 'Analysis',
+      source:    typeof a.source === 'string' ? a.source : '',
+      messages:  Array.isArray(a.messages)
+                   ? a.messages.filter(m => m && m.role && typeof m.content === 'string')
+                               .map(m => ({ role: m.role, content: m.content }))
+                   : [],
+      createdAt: a.createdAt || new Date().toISOString(),
+      updatedAt: a.updatedAt || a.createdAt || new Date().toISOString(),
+      deleted:   !!a.deleted,
+      saved:     true
+    })) : [];
+    return { version: 1, entries, analyses };
   }
 
   function makeId() {
@@ -1564,9 +1622,19 @@
   }
 
   function mergeStates(local, remote) {
+    return {
+      version: 1,
+      entries: mergeById(local.entries, remote.entries),
+      analyses: mergeById(local.analyses, remote.analyses)
+    };
+  }
+
+  // Union two lists by id; newer updatedAt wins; tombstones (deleted) are kept
+  // so a deletion on one device propagates instead of resurrecting.
+  function mergeById(localList, remoteList) {
     const byId = {};
-    for (const e of (remote.entries || [])) byId[e.id] = e;
-    for (const e of (local.entries || [])) {
+    for (const e of (remoteList || [])) byId[e.id] = e;
+    for (const e of (localList || [])) {
       const prev = byId[e.id];
       if (!prev) {
         byId[e.id] = e;
@@ -1576,7 +1644,7 @@
         if (lt >= rt) byId[e.id] = e;
       }
     }
-    return { version: 1, entries: Object.values(byId) };
+    return Object.values(byId);
   }
 
   // UTF-8-safe base64. atob/btoa are latin1 only, so we go through TextEncoder
@@ -1785,6 +1853,7 @@
       '<div class="analysis-status">Analyze this entry on its own, or read it against your whole log so the coach can connect it to your patterns?</div>'
       + '<button class="settings-fullbtn" onclick="runPendingAnalysis(false)">Just this entry</button>'
       + '<button class="settings-fullbtn" onclick="runPendingAnalysis(true)">With my full log as context</button>';
+    resetConvoChrome();
     document.getElementById('analysis-modal').classList.add('visible');
   }
 
@@ -1794,10 +1863,6 @@
   }
 
   async function analyzeEntry(entry, includeHistory) {
-    openAnalysis(includeHistory
-      ? 'Analyzing this entry against your full log...'
-      : 'Analyzing this entry...');
-
     const typeLabel = ({
       lesson: 'lesson', range: 'range session', thought: 'quick thought'
     })[entry.type] || 'entry';
@@ -1840,14 +1905,8 @@
     lines.push('');
     lines.push('Be direct and specific. Real drills, not cliches. Keep it tight.');
 
-    try {
-      const result = await callAnthropic(lines.join('\n'), COACH_SYSTEM);
-      logDiag('AI entry analysis ok' + (includeHistory ? ' (with context)' : ''));
-      showAnalysisResult(result);
-    } catch (err) {
-      logDiag('AI entry analysis error: ' + (err.message || err));
-      showAnalysisError(err.message || String(err));
-    }
+    const title = 'Entry: ' + (entry.title || entry.date) + (includeHistory ? ' (in context)' : '');
+    startConversation(lines.join('\n'), title, 'entry');
   }
 
   // ---------- Whole-log analysis ----------
@@ -1861,8 +1920,6 @@
       alert('No entries to analyze yet. Add a lesson, range session, or thought first.');
       return;
     }
-
-    openAnalysis('Analyzing your full log (' + entries.length + ' entries)...');
 
     // Oldest first so the model reads a chronological timeline and can spot
     // progression / regression patterns naturally.
@@ -1895,16 +1952,8 @@
       'Be direct, specific, and honest. Real drills, not cliches. No filler.'
     ].join('\n');
 
-    const system = COACH_SYSTEM;
-
-    try {
-      const result = await callAnthropic(userMsg, system);
-      logDiag('AI log analysis ok');
-      showAnalysisResult(result);
-    } catch (err) {
-      logDiag('AI log analysis error: ' + (err.message || err));
-      showAnalysisError(err.message || String(err));
-    }
+    const title = 'Full log \u2014 ' + todayISO();
+    startConversation(userMsg, title, 'log');
   }
 
   // ---------- Analysis result modal ----------
@@ -1974,7 +2023,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.1.0";
+  const APP_VERSION = "1.2.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2132,6 +2181,223 @@
     renderSettings();
     checkForUpdates(false);
   });
+
+  // ============================================================
+  // SAVED ANALYSES + FOLLOW-UP CONVERSATIONS
+  // An analysis is a conversation: messages[0] is the (hidden) analysis prompt,
+  // then alternating assistant/user turns. Follow-ups re-send the whole thread
+  // so context is retained. Saved conversations live in state.analyses and
+  // sync alongside entries.
+  // ============================================================
+  let activeConvo = null;
+
+  // Multi-turn API call -- sends the full message array.
+  async function callAnthropicChat(messages, systemText) {
+    const cfg = getAIConfig();
+    if (!cfg.key) throw new Error('No API key configured. Open Settings and Configure AI.');
+    const body = {
+      model: cfg.model,
+      max_tokens: 1500,
+      messages: messages.map(function(m) { return { role: m.role, content: m.content }; })
+    };
+    if (systemText) body.system = systemText;
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': cfg.key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      let detail = '';
+      try { const j = await resp.json(); detail = (j && j.error && j.error.message) ? j.error.message : JSON.stringify(j); }
+      catch { try { detail = await resp.text(); } catch { detail = ''; } }
+      throw new Error('API ' + resp.status + ': ' + (detail || 'unknown error').slice(0, 300));
+    }
+    const data = await resp.json();
+    const texts = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
+    return texts.join('\n\n').trim();
+  }
+
+  function startConversation(prompt, title, source) {
+    activeConvo = {
+      id: makeId(),
+      title: title || 'Analysis',
+      source: source || '',
+      messages: [{ role: 'user', content: prompt }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deleted: false,
+      saved: false
+    };
+    document.getElementById('analysis-modal-title').textContent = activeConvo.title;
+    document.getElementById('analysis-modal').classList.add('visible');
+    runConvoTurn();
+  }
+
+  async function runConvoTurn() {
+    renderConversation(true);
+    try {
+      const reply = await callAnthropicChat(activeConvo.messages, COACH_SYSTEM);
+      activeConvo.messages.push({ role: 'assistant', content: reply });
+      activeConvo.updatedAt = new Date().toISOString();
+      logDiag('AI conversation turn ok');
+      if (activeConvo.saved) persistAnalyses();
+      renderConversation(false);
+    } catch (err) {
+      logDiag('AI conversation error: ' + (err.message || err));
+      renderConversation(false, err.message || String(err));
+    }
+  }
+
+  async function askFollowUp() {
+    if (!activeConvo) return;
+    if (!getAIConfig().key) { alert('Connect your Anthropic API key first.'); return; }
+    const input = document.getElementById('convo-input');
+    const q = (input.value || '').trim();
+    if (!q) return;
+    activeConvo.messages.push({ role: 'user', content: q });
+    input.value = '';
+    await runConvoTurn();
+  }
+
+  function renderConversation(thinking, errorMsg) {
+    const c = document.getElementById('analysis-content');
+    if (!activeConvo) { c.innerHTML = ''; return; }
+    let html = '';
+    // messages[0] is the analysis prompt itself -- skip it in the display.
+    for (let i = 1; i < activeConvo.messages.length; i++) {
+      const m = activeConvo.messages[i];
+      if (m.role === 'assistant') {
+        html += '<div class="analysis-body">' + escapeHtml(m.content) + '</div>';
+      } else {
+        html += '<div class="convo-q">' + escapeHtml(m.content) + '</div>';
+      }
+    }
+    if (thinking) html += '<div class="analysis-status">Thinking...</div>';
+    if (errorMsg) html += '<div class="analysis-error"><strong>Error</strong>' + escapeHtml(errorMsg) + '</div>';
+    c.innerHTML = html;
+
+    const hasReply = activeConvo.messages.some(function(m) { return m.role === 'assistant'; });
+    document.getElementById('convo-followup').style.display = (hasReply && !thinking) ? 'block' : 'none';
+    document.getElementById('convo-save-btn').style.display = (hasReply && !activeConvo.saved) ? 'inline-block' : 'none';
+    document.getElementById('convo-delete-btn').style.display = activeConvo.saved ? 'inline-block' : 'none';
+
+    // Copy button copies the readable thread.
+    lastAnalysis = activeConvo.messages.slice(1).map(function(m) {
+      return (m.role === 'assistant' ? 'COACH: ' : 'YOU: ') + m.content;
+    }).join('\n\n');
+  }
+
+  function saveConversation() {
+    if (!activeConvo) return;
+    if (!activeConvo.saved) {
+      activeConvo.saved = true;
+      activeConvo.updatedAt = new Date().toISOString();
+      if (!state.analyses) state.analyses = [];
+      if (!state.analyses.find(function(a) { return a.id === activeConvo.id; })) {
+        state.analyses.push(activeConvo);
+      }
+      persistAnalyses();
+    }
+    renderConversation(false);
+    renderSavedCount();
+  }
+
+  function deleteConversation() {
+    if (!activeConvo) return;
+    if (!confirm('Delete this analysis? It is removed from this device and from sync.')) return;
+    const a = (state.analyses || []).find(function(x) { return x.id === activeConvo.id; });
+    if (a) { a.deleted = true; a.updatedAt = new Date().toISOString(); }
+    persistAnalyses();
+    closeAnalysis();
+    renderSavedCount();
+    renderSavedListModal();
+  }
+
+  function persistAnalyses() {
+    saveLocal();
+    scheduleSync();
+  }
+
+  // ---------- Saved analyses list ----------
+  function renderSavedCount() {
+    const el = document.getElementById('saved-count');
+    if (el) el.textContent = String((state.analyses || []).filter(function(a) { return !a.deleted; }).length);
+  }
+
+  function openSavedList() {
+    renderSavedListModal();
+    document.getElementById('saved-modal').classList.add('visible');
+  }
+
+  function closeSavedList() {
+    document.getElementById('saved-modal').classList.remove('visible');
+  }
+
+  function renderSavedListModal() {
+    const list = document.getElementById('saved-list');
+    if (!list) return;
+    const items = (state.analyses || []).filter(function(a) { return !a.deleted; })
+      .sort(function(a, b) { return (b.updatedAt || '').localeCompare(a.updatedAt || ''); });
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-state">No saved analyses yet. Run an analysis, then tap Save.</div>';
+      return;
+    }
+    list.innerHTML = items.map(function(a) {
+      const when = a.updatedAt ? a.updatedAt.slice(0, 10) : '';
+      const turns = a.messages.filter(function(m) { return m.role === 'assistant'; }).length;
+      return '<div class="entry-card" onclick="openSavedConversation(\'' + a.id + '\')">'
+        + '<div class="entry-title">' + escapeHtml(a.title) + '</div>'
+        + '<div class="entry-meta"><span class="entry-date">' + when + ' \u00b7 ' + turns + ' repl' + (turns === 1 ? 'y' : 'ies') + '</span></div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function openSavedConversation(id) {
+    const a = (state.analyses || []).find(function(x) { return x.id === id && !x.deleted; });
+    if (!a) return;
+    activeConvo = a;
+    closeSavedList();
+    document.getElementById('analysis-modal-title').textContent = a.title;
+    document.getElementById('analysis-modal').classList.add('visible');
+    renderConversation(false);
+  }
+
+  // Hide follow-up / save / delete while the alone-vs-context choice is shown.
+  function resetConvoChrome() {
+    const f = document.getElementById('convo-followup');
+    const s = document.getElementById('convo-save-btn');
+    const d = document.getElementById('convo-delete-btn');
+    if (f) f.style.display = 'none';
+    if (s) s.style.display = 'none';
+    if (d) d.style.display = 'none';
+  }
+
+  // Refresh the saved-count badge on every entries render (load / sync / edits).
+  (function extendRenderEntriesForSaved() {
+    const orig = window.renderEntries;
+    window.renderEntries = function() {
+      if (typeof orig === 'function') orig();
+      renderSavedCount();
+    };
+  })();
+
+  // Backdrop-close for the saved-analyses modal.
+  (function extendBackdropForSaved() {
+    const orig = window.closeOnBackdrop;
+    window.closeOnBackdrop = function(ev) {
+      if (ev && ev.target && ev.target.classList && ev.target.classList.contains('modal-overlay')) {
+        if (ev.currentTarget && ev.currentTarget.id === 'saved-modal') return closeSavedList();
+      }
+      if (typeof orig === 'function') return orig(ev);
+    };
+  })();
+
+  document.addEventListener('DOMContentLoaded', renderSavedCount);
 </script>
 <div class="modal-overlay" id="entry-modal" onclick="closeOnBackdrop(event)">
   <div class="modal" onclick="event.stopPropagation()">
@@ -2264,11 +2530,34 @@
     </div>
     <div class="modal-body">
       <div id="analysis-content"></div>
+      <div id="convo-followup" style="display:none">
+        <textarea id="convo-input" rows="2" placeholder="Ask a follow-up..."></textarea>
+        <button class="settings-fullbtn" onclick="askFollowUp()">Ask</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="convo-delete-btn" style="display:none" onclick="deleteConversation()">Delete</button>
+      <div class="modal-footer-right" style="margin-left:auto">
+        <button class="btn-secondary" id="convo-save-btn" style="display:none" onclick="saveConversation()">Save</button>
+        <button class="btn-secondary" onclick="copyAnalysis()">Copy</button>
+        <button class="btn-primary" onclick="closeAnalysis()">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="saved-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Saved analyses</h3>
+      <button class="modal-close" onclick="closeSavedList()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="saved-list"></div>
     </div>
     <div class="modal-footer">
       <div class="modal-footer-right" style="margin-left:auto">
-        <button class="btn-secondary" onclick="copyAnalysis()">Copy</button>
-        <button class="btn-primary" onclick="closeAnalysis()">Done</button>
+        <button class="btn-primary" onclick="closeSavedList()">Done</button>
       </div>
     </div>
   </div>
