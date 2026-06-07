@@ -563,7 +563,7 @@ var LZString=function(){var r=String.fromCharCode,o="ABCDEFGHIJKLMNOPQRSTUVWXYZa
 const { useState, useEffect, useRef, useCallback } = React;
 
 /* ---- constants ------------------------------------------------ */
-const APP_VERSION   = "1.25.0";
+const APP_VERSION   = "1.25.1";
 const VISION_MODEL  = "claude-sonnet-4-6";          // current Claude vision model
 const ASK_MODEL     = "claude-sonnet-4-6";          // text model for "help me order"
 const GH_API        = "https://api.github.com";
@@ -700,7 +700,10 @@ little as you like:
 
 **Date and rating.** Pick the date and give the visit a star rating. You can
 rate in half-stars: tap the left side of a star for a half, the right side for
-a whole. Tap the rating you already have to clear it.
+a whole. Tap the rating you already have to clear it. You rate each visit, not
+the restaurant - so a place can have a different rating every time you go. On a
+restaurant, in the Places list, and on a shared card, the star number shown is
+the average of your visits there, labelled "avg."
 
 **What you had (dishes).** Add the dishes you ordered, either by typing them or
 by tapping them straight from that restaurant's digitized menu. Tapping from
@@ -1399,8 +1402,8 @@ async function buildRestaurantCardBlob({ name, sub, ratingAvg, address, loved, p
         ctx.fillText(glyph, x, cy);
       }
     }
-    // numeric average beside the stars
-    const numStr = Number.isInteger(ratingAvg) ? String(ratingAvg) : ratingAvg.toFixed(1);
+    // numeric average beside the stars, labelled so it reads as an average
+    const numStr = (Number.isInteger(ratingAvg) ? String(ratingAvg) : ratingAvg.toFixed(1)) + " avg";
     ctx.fillStyle = DIM;
     ctx.font = "500 30px Outfit, system-ui, sans-serif";
     ctx.fillText(numStr, PAD + 5 * sw + 6, cy - 4);
@@ -6211,6 +6214,7 @@ function PublishedList({data}){
             {p.r ? (
               <div className="row" style={{gap:8,marginTop:6}}>
                 <Stars value={p.r} showNum />
+                <span className="small muted">avg</span>
               </div>
             ) : null}
             {Array.isArray(p.d) && p.d.length > 0 && (
@@ -6375,7 +6379,7 @@ function PublishBuilder({restaurants, visits, onClose}){
               <span className="pub-row-n">{r.name}{r.favorite ? "  \u2605" : ""}</span>
               <span className="pub-row-s">
                 {[r.location, r.cuisine].filter(Boolean).join("  \u00b7  ")}
-                {avgById[r.id] ? "   " + avgById[r.id] + "\u2605" : ""}
+                {avgById[r.id] ? "   " + avgById[r.id] + "\u2605 avg" : ""}
               </span>
             </span>
           </div>
