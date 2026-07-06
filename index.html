@@ -1219,6 +1219,13 @@
         </div>
         <button class="settings-btn" onclick="openAISettings()">Configure</button>
       </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-title">Account (LinksCaptain)</div>
+          <div class="settings-row-sub" id="set-account-sub">Not signed in</div>
+        </div>
+        <button class="settings-btn" id="set-account-btn" onclick="openAccountSettings()">Sign in</button>
+      </div>
     </div>
 
     <p class="section-label">Your data</p>
@@ -1276,6 +1283,15 @@
   const KEY_DATA = 'golf-log-v1';
   const KEY_SYNC = 'golf-sync-token';
   const KEY_LAST = 'golf-sync-last';
+
+  // ---------- LinksCaptain backend (Phase 0): account + API ----------
+  // These are PUBLIC values, safe to ship in the app: the anon key only powers
+  // login (row-level security guards the data), and the backend at API_BASE
+  // re-checks every request with Supabase. Nothing here grants data access.
+  const SUPABASE_URL = 'https://paabwedpsgzfvninhyov.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhYWJ3ZWRwc2d6ZnZuaW5oeW92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNjY1MzYsImV4cCI6MjA5ODk0MjUzNn0.o45seRdkX7-R9pO1_0my53301b_RlVSMfLB9Kka-eH0';
+  const API_BASE = 'https://api.linkscaptain.com';
+  const KEY_AUTH = 'lc-auth';
 
   // Whole-app state mirrored to one localStorage key. One JSON object, one key.
   let state = { version: 1, entries: [], courses: [], rounds: [], analyses: [] };
@@ -1573,6 +1589,145 @@
   }
 
   // ---------- sync (GitHub Contents API: pull-merge-push with sha) ----------
+  // ============================================================
+  // ACCOUNT / AUTH (Supabase email + password). Additive: the app still
+  // runs on GitHub sync. This lets us sign in and confirm the new backend
+  // accepts us before switching sync over in a later step.
+  // ============================================================
+  function getAuth() { try { return JSON.parse(localStorage.getItem(KEY_AUTH) || 'null'); } catch (e) { return null; } }
+  function setAuth(a) { localStorage.setItem(KEY_AUTH, JSON.stringify(a)); }
+  function clearAuth() { localStorage.removeItem(KEY_AUTH); }
+
+  async function supabaseAuth(pathAndQuery, body) {
+    const resp = await fetch(SUPABASE_URL + pathAndQuery, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify(body)
+    });
+    let data = {};
+    try { data = await resp.json(); } catch (e) {}
+    if (!resp.ok) {
+      throw new Error(data.msg || data.error_description || data.error || data.message || ('HTTP ' + resp.status));
+    }
+    return data;
+  }
+
+  function storeSession(d) {
+    const expiresAt = d.expires_at ? d.expires_at * 1000 : (Date.now() + (d.expires_in || 3600) * 1000);
+    setAuth({
+      access_token: d.access_token,
+      refresh_token: d.refresh_token,
+      expires_at: expiresAt,
+      email: d.user && d.user.email,
+      user_id: d.user && d.user.id
+    });
+  }
+
+  async function signUpAccount(email, password) {
+    const d = await supabaseAuth('/auth/v1/signup', { email: email, password: password });
+    if (d.access_token) storeSession(d);
+    return d;
+  }
+  async function signInAccount(email, password) {
+    const d = await supabaseAuth('/auth/v1/token?grant_type=password', { email: email, password: password });
+    storeSession(d);
+    return d;
+  }
+  async function refreshSession() {
+    const a = getAuth();
+    if (!a || !a.refresh_token) throw new Error('Not signed in');
+    const d = await supabaseAuth('/auth/v1/token?grant_type=refresh_token', { refresh_token: a.refresh_token });
+    storeSession(d);
+    return getAuth();
+  }
+  async function getAccessToken() {
+    let a = getAuth();
+    if (!a || !a.access_token) return null;
+    if (Date.now() > (a.expires_at - 60000)) {
+      try { a = await refreshSession(); } catch (e) { logDiag('auth refresh failed: ' + e.message); return null; }
+    }
+    return a.access_token;
+  }
+
+  // Authenticated call to the LinksCaptain backend.
+  async function apiFetch(path, options) {
+    options = options || {};
+    const token = await getAccessToken();
+    if (!token) throw new Error('Not signed in');
+    const headers = Object.assign({ 'Authorization': 'Bearer ' + token }, options.headers || {});
+    if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+    return fetch(API_BASE + path, Object.assign({}, options, { headers: headers }));
+  }
+
+  // ---------- Account UI ----------
+  function updateAccountStatus() {
+    const a = getAuth();
+    const sub = document.getElementById('set-account-sub');
+    if (sub) sub.textContent = (a && a.email) ? ('Signed in as ' + a.email) : 'Not signed in';
+    const btn = document.getElementById('set-account-btn');
+    if (btn) btn.textContent = (a && a.email) ? 'Manage' : 'Sign in';
+  }
+  function setAccountMsg(msg, isErr) {
+    const el = document.getElementById('account-msg');
+    if (el) { el.textContent = msg || ''; el.style.color = isErr ? 'var(--error-red)' : ''; }
+  }
+  function renderAccountModal() {
+    const a = getAuth();
+    const signedIn = !!(a && a.email);
+    document.getElementById('account-signedin').style.display = signedIn ? 'block' : 'none';
+    document.getElementById('account-form').style.display = signedIn ? 'none' : 'block';
+    if (signedIn) document.getElementById('account-whoami').textContent = a.email;
+    setAccountMsg('');
+  }
+  function openAccountSettings() {
+    const a = getAuth();
+    document.getElementById('account-email').value = (a && a.email) || '';
+    document.getElementById('account-password').value = '';
+    renderAccountModal();
+    document.getElementById('account-modal').classList.add('visible');
+  }
+  function closeAccountSettings() {
+    document.getElementById('account-modal').classList.remove('visible');
+  }
+  async function doSignIn() {
+    const email = document.getElementById('account-email').value.trim();
+    const pw = document.getElementById('account-password').value;
+    if (!email || !pw) { setAccountMsg('Enter email and password.', true); return; }
+    setAccountMsg('Signing in...');
+    try {
+      await signInAccount(email, pw);
+      updateAccountStatus(); renderAccountModal(); setAccountMsg('Signed in.');
+    } catch (e) { setAccountMsg('Sign in failed: ' + e.message, true); }
+  }
+  async function doSignUp() {
+    const email = document.getElementById('account-email').value.trim();
+    const pw = document.getElementById('account-password').value;
+    if (!email || !pw) { setAccountMsg('Enter email and password.', true); return; }
+    if (pw.length < 6) { setAccountMsg('Password must be at least 6 characters.', true); return; }
+    setAccountMsg('Creating account...');
+    try {
+      await signUpAccount(email, pw);
+      if (getAuth() && getAuth().access_token) {
+        updateAccountStatus(); renderAccountModal(); setAccountMsg('Account created and signed in.');
+      } else {
+        setAccountMsg('Account created. If email confirmation is on, confirm via email then sign in.');
+      }
+    } catch (e) { setAccountMsg('Sign up failed: ' + e.message, true); }
+  }
+  function doSignOut() {
+    clearAuth(); updateAccountStatus(); renderAccountModal(); setAccountMsg('Signed out.');
+  }
+  async function testBackend() {
+    setAccountMsg('Testing backend...');
+    try {
+      const resp = await apiFetch('/api/entitlement');
+      let data = {};
+      try { data = await resp.json(); } catch (e) {}
+      if (resp.ok) setAccountMsg('Backend OK - authenticated, tier "' + (data.tier || '?') + '".');
+      else setAccountMsg('Backend responded ' + resp.status + ': ' + (data.detail || ''), true);
+    } catch (e) { setAccountMsg('Backend test failed: ' + e.message, true); }
+  }
+
   function getSyncConfig() {
     let cfg = {};
     try { cfg = JSON.parse(localStorage.getItem(KEY_SYNC) || '{}'); } catch { cfg = {}; }
@@ -2171,6 +2326,7 @@
   // The existing DOMContentLoaded handler renders entries and runs sync;
   // we add a second listener so the AI bar reflects current state too.
   document.addEventListener('DOMContentLoaded', updateAIStatus);
+  document.addEventListener('DOMContentLoaded', updateAccountStatus);
 
   // ============================================================
   // SELF-UPDATE
@@ -2179,7 +2335,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.5.0";
+  const APP_VERSION = "1.6.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -3373,6 +3529,39 @@
         <button class="btn-secondary" onclick="closeEntryForm()">Cancel</button>
         <button class="btn-primary" onclick="saveEntry()">Save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="account-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Account</h3>
+      <button class="modal-close" onclick="closeAccountSettings()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-help">
+        Sign in to LinksCaptain to sync your log to the cloud backend. This is
+        being added alongside the existing GitHub sync while we switch over.
+      </p>
+      <div id="account-form">
+        <label>Email</label>
+        <input type="text" inputmode="email" id="account-email" placeholder="you@example.com" autocapitalize="off" autocorrect="off">
+        <label>Password</label>
+        <input type="password" id="account-password" placeholder="at least 6 characters" autocapitalize="off" autocorrect="off">
+        <div class="modal-footer-right" style="margin-top:12px;">
+          <button class="btn-secondary" onclick="doSignUp()">Create account</button>
+          <button class="btn-primary" onclick="doSignIn()">Sign in</button>
+        </div>
+      </div>
+      <div id="account-signedin" style="display:none">
+        <p class="modal-help">Signed in as <strong id="account-whoami"></strong>.</p>
+        <div class="modal-footer-right" style="margin-top:12px;">
+          <button class="btn-secondary" onclick="testBackend()">Test backend</button>
+          <button class="btn-danger" onclick="doSignOut()">Sign out</button>
+        </div>
+      </div>
+      <p class="modal-help" id="account-msg"></p>
     </div>
   </div>
 </div>
