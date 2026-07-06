@@ -1,7 +1,7 @@
 {
-  "name": "Salty Tee Box Golf",
-  "short_name": "Salty Golf",
-  "description": "A private golf log - lessons, range sessions, rounds, courses, and an AI coach.",
+  "name": "LinksCaptain",
+  "short_name": "LinksCaptain",
+  "description": "A private golf log by Salty Tee Box - lessons, range sessions, rounds, courses, and an AI coach.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
