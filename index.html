@@ -739,6 +739,10 @@
   .scan-status { font-size: 0.8rem; color: #555; margin-top: 8px; min-height: 1.1em; }
   .scan-hint { font-size: 0.75rem; color: #777; margin-top: 4px; line-height: 1.4; }
 
+
+  .round-score { font-family: 'Playfair Display', serif; font-weight: 700; color: var(--green); font-size: 1.05rem; white-space: nowrap; }
+  button.linklike { border: none; background: none; color: var(--error-red); font-size: 0.68rem; cursor: pointer; padding: 0; text-decoration: underline; font-family: 'DM Sans', sans-serif; }
+
 </style>
 </head>
 <body>
@@ -759,6 +763,7 @@
 <div class="tab-bar">
   <button class="tab active" onclick="showSection('log', this)">Log</button>
   <button class="tab" onclick="showSection('courses', this); renderCourses()">⛳ Courses</button>
+  <button class="tab" onclick="showSection('rounds', this); renderRounds()">🏌 Rounds</button>
   <button class="tab" onclick="showSection('setup', this)">Setup</button>
   <button class="tab" onclick="showSection('swingthoughts', this)">💭 Swing Thoughts</button>
   <button class="tab" onclick="showSection('backswing', this)">Backswing</button>
@@ -810,6 +815,18 @@
     <input type="text" class="search-box" id="course-search" placeholder="Search your courses..." oninput="renderCourses()">
 
     <div class="entries-list" id="courses-list"></div>
+  </div>
+
+  <!-- ROUNDS -->
+  <div id="rounds" class="section">
+    <div class="log-actions">
+      <button class="btn-primary" onclick="openRoundForm()">+ Log round</button>
+      <button class="btn-secondary" onclick="scanNewRound()">Scan scorecard</button>
+    </div>
+
+    <input type="text" class="search-box" id="round-search" placeholder="Search your rounds..." oninput="renderRounds()">
+
+    <div class="entries-list" id="rounds-list"></div>
   </div>
 
   <!-- SETUP -->
@@ -1259,7 +1276,7 @@
   const KEY_LAST = 'golf-sync-last';
 
   // Whole-app state mirrored to one localStorage key. One JSON object, one key.
-  let state = { version: 1, entries: [], courses: [], analyses: [] };
+  let state = { version: 1, entries: [], courses: [], rounds: [], analyses: [] };
   let currentFilter = 'all';
   let editingId = null;
   let syncTimer = null;
@@ -1335,7 +1352,28 @@
       updatedAt: c.updatedAt || c.addedAt || new Date().toISOString(),
       deleted:   !!c.deleted
     })) : [];
-    return { version: 1, entries, courses, analyses };
+    // Rounds are one playing of a course. players[] holds each competitor; one
+    // is flagged isMe. holes is keyed by hole number -> { strokes } (Phase 2b
+    // will add putts/fairway/gir/etc onto that same per-hole object).
+    const rounds = Array.isArray(raw.rounds) ? raw.rounds.map(r => ({
+      id:        r.id || makeId(),
+      courseId:  typeof r.courseId === 'string' ? r.courseId : '',
+      date:      r.date || todayISO(),
+      tee:       typeof r.tee === 'string' ? r.tee : '',
+      depth:     (r.depth === 'detailed') ? 'detailed' : 'quick',
+      notes:     typeof r.notes === 'string' ? r.notes : '',
+      theMiss:   typeof r.theMiss === 'string' ? r.theMiss : '',
+      players:   Array.isArray(r.players) ? r.players.map(p => ({
+                   id:    p.id || makeId(),
+                   name:  typeof p.name === 'string' ? p.name : '',
+                   isMe:  !!p.isMe,
+                   holes: (p.holes && typeof p.holes === 'object') ? p.holes : {}
+                 })) : [],
+      createdAt: r.createdAt || new Date().toISOString(),
+      updatedAt: r.updatedAt || r.createdAt || new Date().toISOString(),
+      deleted:   !!r.deleted
+    })) : [];
+    return { version: 1, entries, courses, rounds, analyses };
   }
 
   function makeId() {
@@ -1722,6 +1760,7 @@
       version: 1,
       entries: mergeById(local.entries, remote.entries),
       courses: mergeById(local.courses, remote.courses),
+      rounds: mergeById(local.rounds, remote.rounds),
       analyses: mergeById(local.analyses, remote.analyses)
     };
   }
@@ -1766,6 +1805,8 @@
       else if (id === 'sync-modal') closeSyncSettings();
       else if (id === 'course-modal') closeCourseForm();
       else if (id === 'scan-modal') closeScan();
+      else if (id === 'round-modal') closeRoundForm();
+      else if (id === 'round-scan-modal') closeRoundScan();
     }
   }
 
@@ -1774,6 +1815,7 @@
     loadLocal();
     renderEntries();
     renderCourses();
+    renderRounds();
     updateSyncStatus();
     // Auto-sync on launch if configured. Errors are logged; the UI keeps
     // working with local data either way.
@@ -2123,7 +2165,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.3.0";
+  const APP_VERSION = "1.4.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2525,11 +2567,14 @@
   }
   function syncScanToggleUI() {
     const m = getScanModel();
-    const s = document.getElementById('scan-model-sonnet');
-    const o = document.getElementById('scan-model-opus');
-    if (s && o) {
-      s.classList.toggle('active', m === 'claude-sonnet-4-6');
-      o.classList.toggle('active', m === 'claude-opus-4-8');
+    const pairs = [['scan-model-sonnet','scan-model-opus'], ['scan-model-sonnet-r','scan-model-opus-r']];
+    for (const [sid, oid] of pairs) {
+      const s = document.getElementById(sid);
+      const o = document.getElementById(oid);
+      if (s && o) {
+        s.classList.toggle('active', m === 'claude-sonnet-4-6');
+        o.classList.toggle('active', m === 'claude-opus-4-8');
+      }
     }
   }
 
@@ -2895,6 +2940,383 @@
       setScanStatus('Scan failed: ' + (err.message || err));
     }
   }
+
+  // ============================================================
+  // ROUNDS (Phase 2a): log one playing of a course. Strokes only here;
+  // Phase 2b adds the detailed per-hole stats onto the same structure.
+  //
+  // A round references a course by id for par and hole count, so to-par is
+  // always computed against the holes actually played (handles 9s and walk-offs).
+  // ============================================================
+  let roundDraft = null;
+
+  function getCourseById(id) {
+    // Include deleted so an old round still resolves its par/name.
+    return state.courses.find(c => c.id === id) || null;
+  }
+
+  function newRoundDraft() {
+    const now = new Date().toISOString();
+    return {
+      id: makeId(), courseId: '', date: todayISO(), tee: '', depth: 'quick',
+      notes: '', theMiss: '',
+      players: [{ id: makeId(), name: 'Me', isMe: true, holes: {} }],
+      createdAt: now, updatedAt: now, deleted: false
+    };
+  }
+
+  function openRoundForm(id) {
+    if (id) {
+      const existing = state.rounds.find(r => r.id === id);
+      if (!existing) return;
+      roundDraft = JSON.parse(JSON.stringify(existing));
+      document.getElementById('round-modal-title').textContent = 'Edit round';
+      document.getElementById('round-delete-btn').style.display = 'inline-block';
+    } else {
+      roundDraft = newRoundDraft();
+      document.getElementById('round-modal-title').textContent = 'Log round';
+      document.getElementById('round-delete-btn').style.display = 'none';
+    }
+    // Course picker: only non-deleted courses are selectable.
+    const sel = document.getElementById('round-course');
+    const live = state.courses.filter(c => !c.deleted)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    let opts = '<option value="">Select a course...</option>';
+    for (const c of live) {
+      opts += '<option value="' + c.id + '"' + (c.id === roundDraft.courseId ? ' selected' : '') + '>' +
+              escapeHtml(c.name || 'Untitled') + '</option>';
+    }
+    sel.innerHTML = opts;
+
+    document.getElementById('round-date').value = roundDraft.date;
+    document.getElementById('round-notes').value = roundDraft.notes;
+    document.getElementById('round-miss').value = roundDraft.theMiss;
+    refreshTeeOptions();
+    renderRoundGrid();
+    document.getElementById('round-modal').classList.add('visible');
+  }
+
+  function closeRoundForm() {
+    document.getElementById('round-modal').classList.remove('visible');
+    roundDraft = null;
+  }
+
+  function refreshTeeOptions() {
+    if (!roundDraft) return;
+    const course = getCourseById(roundDraft.courseId);
+    const teeSel = document.getElementById('round-tee');
+    const tees = (course && course.tees && course.tees.length) ? course.tees : [];
+    let opts = '<option value="">Tee</option>';
+    for (const t of tees) opts += '<option value="' + escapeHtml(t) + '"' + (t === roundDraft.tee ? ' selected' : '') + '>' + escapeHtml(t) + '</option>';
+    teeSel.innerHTML = opts;
+  }
+
+  function onRoundCourseChange() {
+    if (!roundDraft) return;
+    roundDraft.courseId = document.getElementById('round-course').value;
+    roundDraft.tee = '';
+    refreshTeeOptions();
+    renderRoundGrid();
+  }
+  function onRoundTeeChange() {
+    if (!roundDraft) return;
+    roundDraft.tee = document.getElementById('round-tee').value;
+  }
+  function onRoundDateChange() {
+    if (!roundDraft) return;
+    roundDraft.date = document.getElementById('round-date').value || todayISO();
+  }
+
+  // Totals are computed only over holes the player actually has a stroke on, so
+  // a 9-hole or abandoned round reports honest to-par instead of penalizing
+  // blank holes.
+  function playerTotals(player, course) {
+    let strokes = 0, parPlayed = 0, played = 0;
+    if (!course) return { strokes: 0, parPlayed: 0, toPar: 0, played: 0 };
+    for (const h of course.holes) {
+      const cell = player.holes[String(h.hole)];
+      const s = cell && cell.strokes;
+      if (typeof s === 'number' && !isNaN(s)) {
+        strokes += s; played += 1;
+        if (typeof h.par === 'number') parPlayed += h.par;
+      }
+    }
+    return { strokes: strokes, parPlayed: parPlayed, toPar: strokes - parPlayed, played: played };
+  }
+
+  function fmtToPar(n) {
+    if (n === 0) return 'E';
+    return (n > 0 ? '+' : '') + n;
+  }
+
+  function renderRoundGrid() {
+    const wrap = document.getElementById('round-grid');
+    if (!roundDraft) { wrap.innerHTML = ''; return; }
+    const course = getCourseById(roundDraft.courseId);
+    if (!course) {
+      wrap.innerHTML = '<div class="scan-hint">Pick a course to load its holes. No courses yet? Add one on the Courses tab first.</div>';
+      return;
+    }
+    const players = roundDraft.players;
+
+    // Header: Hole | Par | one column per player (editable name + "me" radio).
+    let head = '<tr><th>Hole</th><th>Par</th>';
+    for (const p of players) {
+      head += '<th>' +
+        '<input type="text" value="' + escapeHtml(p.name) + '" placeholder="Name" ' +
+          'style="width:70px" onchange="setPlayerName(\'' + p.id + '\',this.value)">' +
+        '<div style="font-size:0.68rem;margin-top:2px;">' +
+          '<label style="display:inline-flex;align-items:center;gap:3px;margin:0;font-weight:400;">' +
+            '<input type="radio" name="round-me" style="width:auto" ' + (p.isMe ? 'checked' : '') +
+              ' onchange="setMe(\'' + p.id + '\')"> me</label>' +
+          (players.length > 1 ? ' <button type="button" class="linklike" onclick="removePlayer(\'' + p.id + '\')">remove</button>' : '') +
+        '</div></th>';
+    }
+    head += '</tr>';
+
+    let rows = '';
+    for (const h of course.holes) {
+      rows += '<tr><td>' + h.hole + '</td><td>' + (h.par == null ? '' : h.par) + '</td>';
+      for (const p of players) {
+        const cell = p.holes[String(h.hole)];
+        const s = (cell && typeof cell.strokes === 'number') ? cell.strokes : '';
+        rows += '<td><input type="number" inputmode="numeric" value="' + s + '" ' +
+                'oninput="setStroke(\'' + p.id + '\',' + h.hole + ',this.value)"></td>';
+      }
+      rows += '</tr>';
+    }
+
+    // Footer totals: filled by updateRoundTotals so mid-typing does not re-render.
+    let foot = '<tfoot><tr><td>Tot</td><td></td>';
+    for (const p of players) foot += '<td id="rt-' + p.id + '"></td>';
+    foot += '</tr></tfoot>';
+
+    wrap.innerHTML = '<table class="scorecard"><thead>' + head + '</thead><tbody>' + rows + '</tbody>' + foot + '</table>';
+    updateRoundTotals();
+  }
+
+  function updateRoundTotals() {
+    if (!roundDraft) return;
+    const course = getCourseById(roundDraft.courseId);
+    if (!course) return;
+    for (const p of roundDraft.players) {
+      const cell = document.getElementById('rt-' + p.id);
+      if (!cell) continue;
+      const t = playerTotals(p, course);
+      cell.textContent = t.played ? (t.strokes + ' (' + fmtToPar(t.toPar) + ')') : '';
+    }
+  }
+
+  function setStroke(playerId, hole, val) {
+    if (!roundDraft) return;
+    const p = roundDraft.players.find(x => x.id === playerId);
+    if (!p) return;
+    const key = String(hole);
+    if (val === '') { delete p.holes[key]; }
+    else {
+      if (!p.holes[key]) p.holes[key] = {};
+      p.holes[key].strokes = Number(val);
+    }
+    updateRoundTotals();
+  }
+  function setPlayerName(playerId, val) {
+    if (!roundDraft) return;
+    const p = roundDraft.players.find(x => x.id === playerId);
+    if (p) p.name = val;
+  }
+  function setMe(playerId) {
+    if (!roundDraft) return;
+    for (const p of roundDraft.players) p.isMe = (p.id === playerId);
+  }
+  function addPlayer() {
+    if (!roundDraft) return;
+    if (roundDraft.players.length >= 6) { alert('Six players is plenty for one card.'); return; }
+    roundDraft.players.push({ id: makeId(), name: '', isMe: false, holes: {} });
+    renderRoundGrid();
+  }
+  function removePlayer(playerId) {
+    if (!roundDraft) return;
+    roundDraft.players = roundDraft.players.filter(p => p.id !== playerId);
+    if (!roundDraft.players.length) roundDraft.players.push({ id: makeId(), name: 'Me', isMe: true, holes: {} });
+    if (!roundDraft.players.some(p => p.isMe)) roundDraft.players[0].isMe = true;
+    renderRoundGrid();
+  }
+
+  function saveRound() {
+    if (!roundDraft) return;
+    if (!roundDraft.courseId || !getCourseById(roundDraft.courseId)) {
+      alert('Pick a course for this round first.');
+      return;
+    }
+    roundDraft.date = document.getElementById('round-date').value || todayISO();
+    roundDraft.notes = document.getElementById('round-notes').value.trim();
+    roundDraft.theMiss = document.getElementById('round-miss').value.trim();
+    if (!roundDraft.players.some(p => p.isMe)) roundDraft.players[0].isMe = true;
+    roundDraft.updatedAt = new Date().toISOString();
+    roundDraft.deleted = false;
+    const idx = state.rounds.findIndex(r => r.id === roundDraft.id);
+    if (idx >= 0) state.rounds[idx] = roundDraft;
+    else state.rounds.push(roundDraft);
+    saveLocal();
+    renderRounds();
+    closeRoundForm();
+    scheduleSync();
+  }
+
+  function deleteRound() {
+    if (!roundDraft) return;
+    if (!confirm('Delete this round? It will be removed on all your devices.')) return;
+    const r = state.rounds.find(x => x.id === roundDraft.id);
+    if (r) { r.deleted = true; r.updatedAt = new Date().toISOString(); }
+    saveLocal();
+    renderRounds();
+    closeRoundForm();
+    scheduleSync();
+  }
+
+  function renderRounds() {
+    const listEl = document.getElementById('rounds-list');
+    if (!listEl) return;
+    const q = (document.getElementById('round-search').value || '').toLowerCase().trim();
+    let items = state.rounds.filter(r => !r.deleted);
+    if (q) {
+      items = items.filter(r => {
+        const course = getCourseById(r.courseId);
+        const hay = ((course ? course.name : '') + ' ' + r.date + ' ' + r.notes).toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+    }
+    // Newest played first; break ties on last edit.
+    items.sort((a, b) => (b.date || '').localeCompare(a.date || '') ||
+                          (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    if (!items.length) {
+      listEl.innerHTML = '<div class="empty-note">No rounds yet. Tap Log round, or Scan scorecard to read one in.</div>';
+      return;
+    }
+    listEl.innerHTML = items.map(r => {
+      const course = getCourseById(r.courseId);
+      const me = r.players.find(p => p.isMe) || r.players[0];
+      let scoreStr = '';
+      if (me && course) {
+        const t = playerTotals(me, course);
+        if (t.played) scoreStr = t.strokes + ' (' + fmtToPar(t.toPar) + ')' + (t.played < course.holes.length ? ' \u00b7 ' + t.played + ' holes' : '');
+      }
+      const meta = [];
+      meta.push(prettyDate(r.date));
+      if (r.tee) meta.push(escapeHtml(r.tee) + ' tees');
+      if (r.players.length > 1) meta.push(r.players.length + ' players');
+      return '<div class="course-card" onclick="openRoundForm(\'' + r.id + '\')">' +
+               '<div><h4>' + escapeHtml(course ? (course.name || 'Untitled') : 'Course removed') + '</h4>' +
+               '<div class="meta">' + meta.join(' \u00b7 ') + '</div></div>' +
+               (scoreStr ? '<div class="round-score">' + scoreStr + '</div>' : '') +
+             '</div>';
+    }).join('');
+  }
+
+  function prettyDate(iso) {
+    // iso is YYYY-MM-DD; render without timezone drift.
+    if (!iso) return '';
+    const p = iso.split('-');
+    if (p.length !== 3) return iso;
+    const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  // ---------- Round scorecard scan ----------
+  function scanNewRound() {
+    openRoundForm();
+    // A round needs a course to map holes; nudge if none is picked yet.
+    openRoundScan();
+  }
+
+  function openRoundScan() {
+    document.getElementById('round-scan-file').value = '';
+    setRoundScanStatus('');
+    syncScanToggleUI();
+    document.getElementById('round-scan-modal').classList.add('visible');
+  }
+  function closeRoundScan() {
+    document.getElementById('round-scan-modal').classList.remove('visible');
+  }
+  function setRoundScanStatus(msg) {
+    const el = document.getElementById('round-scan-status');
+    if (el) el.textContent = msg || '';
+  }
+
+  const ROUND_SCAN_SYSTEM =
+    'You read handwritten golf scorecards and return STRICT JSON only. No prose, ' +
+    'no markdown, no code fences. Read each PLAYER column and the strokes they ' +
+    'wrote for each hole. Read player names if written. A blank hole means not ' +
+    'played: use null. IGNORE the printed par and yardage rows. If a value is ' +
+    'unclear, use null.';
+
+  function roundScanPrompt() {
+    return 'Return JSON exactly in this shape:\n' +
+      '{"date": string|null, "players": [{"name": string|null, ' +
+      '"strokes": {"1": number|null, "2": number|null }}], "notes": string|null}\n' +
+      'Keys inside "strokes" are hole numbers. Include every player column and every ' +
+      'hole printed on the card. Output ONLY the JSON object.';
+  }
+
+  function applyRoundScan(obj) {
+    if (!roundDraft) roundDraft = newRoundDraft();
+    if (obj.date && /^\d{4}-\d{2}-\d{2}$/.test(obj.date)) {
+      roundDraft.date = obj.date;
+      document.getElementById('round-date').value = obj.date;
+    }
+    const scanned = Array.isArray(obj.players) ? obj.players : [];
+    if (scanned.length) {
+      roundDraft.players = scanned.map((sp, i) => {
+        const holes = {};
+        if (sp.strokes && typeof sp.strokes === 'object') {
+          for (const k of Object.keys(sp.strokes)) {
+            const v = sp.strokes[k];
+            if (v != null && v !== '') holes[String(parseInt(k, 10))] = { strokes: Number(v) };
+          }
+        }
+        return { id: makeId(), name: (typeof sp.name === 'string' && sp.name) ? sp.name : (i === 0 ? 'Me' : 'Player ' + (i + 1)),
+                 isMe: i === 0, holes: holes };
+      });
+    }
+    renderRoundGrid();
+  }
+
+  async function readRoundScorecard() {
+    if (!roundDraft || !roundDraft.courseId || !getCourseById(roundDraft.courseId)) {
+      alert('Pick the course for this round first, then scan. The course sets which holes to map scores onto.');
+      return;
+    }
+    const input = document.getElementById('round-scan-file');
+    const file = input && input.files && input.files[0];
+    if (!file) { alert('Choose a photo of the scorecard first.'); return; }
+    const cfg = getAIConfig();
+    if (!cfg.key) { alert('Open Settings and Configure AI (your Anthropic key) before scanning.'); return; }
+
+    const model = getScanModel();
+    const fam = model.indexOf('opus') !== -1 ? 'Opus' : 'Sonnet';
+    setRoundScanStatus('Reading with ' + fam + '...');
+    logDiag('round scan started (' + fam + ')');
+    try {
+      const img = await resizeImageToBase64(file, 1200);
+      const reply = await callAnthropicVision(img.b64, img.mediaType, roundScanPrompt(), ROUND_SCAN_SYSTEM, model);
+      let parsed;
+      try {
+        parsed = parseScorecard(reply);
+      } catch (perr) {
+        logDiag('round scan parse failed: ' + (perr.message || perr));
+        setRoundScanStatus('Could not read that cleanly. Try the other model, a sharper photo, or enter scores by hand.');
+        return;
+      }
+      applyRoundScan(parsed);
+      const note = parsed.notes ? (' Note: ' + parsed.notes) : '';
+      setRoundScanStatus('Read complete. Confirm which line is you, then check every number.' + note);
+      logDiag('round scan ok (' + fam + ')');
+      closeRoundScan();
+    } catch (err) {
+      logDiag('round scan error: ' + (err.message || err));
+      setRoundScanStatus('Scan failed: ' + (err.message || err));
+    }
+  }
 </script>
 <div class="modal-overlay" id="entry-modal" onclick="closeOnBackdrop(event)">
   <div class="modal" onclick="event.stopPropagation()">
@@ -3127,6 +3549,74 @@
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeScan()">Cancel</button>
         <button class="btn-primary" onclick="readScorecard()">Read scorecard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="round-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="round-modal-title">Log round</h3>
+      <button class="modal-close" onclick="closeRoundForm()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label>Course</label>
+      <select id="round-course" onchange="onRoundCourseChange()"></select>
+
+      <div class="scan-row">
+        <input type="date" id="round-date" onchange="onRoundDateChange()" style="flex:1;min-width:140px;">
+        <select id="round-tee" onchange="onRoundTeeChange()" style="width:auto;"></select>
+      </div>
+
+      <div class="scan-row">
+        <button class="btn-secondary" type="button" onclick="openRoundScan()">Scan scorecard</button>
+        <button class="btn-secondary" type="button" onclick="addPlayer()">+ Player</button>
+      </div>
+
+      <label>Scores &mdash; tap a name to edit, pick which line is you</label>
+      <div class="scorecard-wrap" id="round-grid"></div>
+
+      <label>The miss that cost you</label>
+      <input type="text" id="round-miss" placeholder="e.g. pulled driver left, 3-putts on the back">
+
+      <label>Notes</label>
+      <textarea id="round-notes" rows="3" placeholder="Anything to remember about the round..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="round-delete-btn" style="display:none" onclick="deleteRound()">Delete</button>
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeRoundForm()">Cancel</button>
+        <button class="btn-primary" onclick="saveRound()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="round-scan-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Scan scorecard</h3>
+      <button class="modal-close" onclick="closeRoundScan()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label>Model</label>
+      <div class="seg-toggle" role="group" aria-label="Scan model">
+        <button type="button" id="scan-model-sonnet-r" onclick="setScanModel('claude-sonnet-4-6')">Sonnet</button>
+        <button type="button" id="scan-model-opus-r" onclick="setScanModel('claude-opus-4-8')">Opus</button>
+      </div>
+      <div class="scan-hint">Reads handwritten scores per player. Sonnet is cheaper; Opus reads messy handwriting better.</div>
+
+      <label style="margin-top:12px;">Scorecard photo</label>
+      <input type="file" id="round-scan-file" accept="image/*">
+      <div class="scan-hint">Pick the course first so scores map to the right holes. Multi-player cards: we cannot always tell which line is yours, so confirm it after reading.</div>
+
+      <div class="scan-status" id="round-scan-status"></div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeRoundScan()">Cancel</button>
+        <button class="btn-primary" onclick="readRoundScorecard()">Read scorecard</button>
       </div>
     </div>
   </div>
