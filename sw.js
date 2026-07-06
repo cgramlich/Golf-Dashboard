@@ -1,4 +1,4 @@
-/* Salty Tee Box Golf service worker - OFFLINE PHASE 1 (app shell only).
+/* LinksCaptain service worker - OFFLINE PHASE 1 (app shell only).
    ===========================================================================
    Mirrors the MenuCaptain PWA shell, trimmed to this app: one self-contained
    index.html, Google-Fonts webfonts, our own icons - no CDN libs, no map, and
@@ -30,9 +30,9 @@ const VERSION     = "1.5.0";                     // keep in lockstep with APP_VE
 const SHELL_CACHE = "golf-shell-" + VERSION;
 const ASSET_CACHE = "golf-assets-" + VERSION;
 
-// Served from a GitHub Pages project path (/Golf-Dashboard/) OR a root domain.
+// Served from the root of linkscaptain.com (or a GitHub Pages project subpath).
 // Derive the scope from this worker's own location so both work unchanged.
-const SCOPE     = new URL("./", self.location).pathname;   // "/Golf-Dashboard/" or "/"
+const SCOPE     = new URL("./", self.location).pathname;   // "/" on the domain, or a project subpath
 const SHELL_URL = SCOPE;                                    // canonical app-doc key
 
 // Primed on install so even the very first offline open renders in-brand.
