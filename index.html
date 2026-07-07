@@ -2354,7 +2354,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.10.1";
+  const APP_VERSION = "1.10.2";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -3060,8 +3060,11 @@
     for (var i = 0; i < nearbyCourses.length; i++) {
       var c = nearbyCourses[i];
       var sub = [(c.distance_mi != null ? c.distance_mi + ' mi' : ''), c.city].filter(Boolean).join(' · ');
+      var badge = c.private
+        ? ' <span style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:2px 6px;border-radius:8px;background:rgba(201,168,76,0.18);color:var(--gold);vertical-align:middle;">Private</span>'
+        : '';
       html += '<button type="button" class="settings-fullbtn" style="text-align:left;" onclick="pickNearby(' + i + ')">'
-            + '<strong>' + escapeHtml(c.name || 'Course') + '</strong>'
+            + '<strong>' + escapeHtml(c.name || 'Course') + '</strong>' + badge
             + (sub ? '<br><span style="font-size:0.8rem;opacity:0.7;">' + escapeHtml(sub) + '</span>' : '')
             + '</button>';
     }
