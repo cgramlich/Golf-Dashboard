@@ -2354,7 +2354,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.10.0";
+  const APP_VERSION = "1.10.1";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -3046,7 +3046,7 @@
         .then(function (res) {
           if (!res.ok) { setFindStatus('Nearby search failed: ' + ((res.data && res.data.detail) || res.status)); return; }
           nearbyCourses = res.data.courses || [];
-          if (!nearbyCourses.length) { setFindStatus('No courses found near you. Try typing a name.'); return; }
+          if (!nearbyCourses.length) { setFindStatus('No courses in the map data near you (' + meLoc[0].toFixed(5) + ', ' + meLoc[1].toFixed(5) + '). Type the course name instead.'); return; }
           setFindStatus('Nearby courses - tap one to load its scorecard.');
           renderNearby();
         })
