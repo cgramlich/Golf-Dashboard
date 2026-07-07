@@ -471,6 +471,20 @@
     padding: 9px 18px;
   }
 
+  /* ===== Play a round (live hole-by-hole) ===== */
+  .play-hero { text-align: center; padding: 6px 0 2px; }
+  .play-holeno { font-size: 1.5rem; font-weight: 700; color: var(--green); }
+  .play-holeinfo { color: #555; margin-top: 4px; font-size: 0.95rem; }
+  .play-score-row { display: flex; align-items: center; justify-content: center; gap: 22px; margin: 16px 0 10px; }
+  .play-score-num { font-size: 2.8rem; font-weight: 800; min-width: 64px; text-align: center; color: var(--dark); }
+  .play-step { width: 56px; height: 56px; border-radius: 50%; font-size: 1.7rem; line-height: 1; border: none; background: var(--green); color: #fff; cursor: pointer; }
+  .play-step:active { background: var(--green-light); }
+  .play-quick { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+  .play-total { text-align: center; font-weight: 700; margin: 6px 0 14px; color: var(--dark); }
+  .play-nav { display: flex; justify-content: space-between; gap: 8px; }
+  .play-btn { background: #ddd6c8; color: #333; border: none; border-radius: 8px; padding: 10px 16px; font-size: 0.95rem; cursor: pointer; }
+  .play-btn:disabled { opacity: 0.4; }
+
 
   /* ===== AI analysis feature ===== */
   .ai-status {
@@ -822,7 +836,8 @@
   <!-- ROUNDS -->
   <div id="rounds" class="section">
     <div class="log-actions">
-      <button class="btn-primary" onclick="openRoundForm()">+ Log round</button>
+      <button class="btn-primary" onclick="openPlay()">▶ Play a round</button>
+      <button class="btn-secondary" onclick="openRoundForm()">+ Log round</button>
       <button class="btn-secondary" onclick="scanNewRound()">Scan scorecard</button>
     </div>
 
@@ -1379,6 +1394,8 @@
       date:      r.date || todayISO(),
       tee:       typeof r.tee === 'string' ? r.tee : '',
       depth:     (r.depth === 'detailed') ? 'detailed' : 'quick',
+      currentHole: (typeof r.currentHole === 'number' && r.currentHole > 0) ? r.currentHole : 1,
+      inProgress: !!r.inProgress,
       notes:     typeof r.notes === 'string' ? r.notes : '',
       theMiss:   typeof r.theMiss === 'string' ? r.theMiss : '',
       players:   Array.isArray(r.players) ? r.players.map(p => ({
@@ -2337,7 +2354,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.7.0";
+  const APP_VERSION = "1.8.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -3481,6 +3498,146 @@
   }
 
   // ---------- Round scorecard scan ----------
+  // ============================================================
+  // PLAY A ROUND - live, hole-by-hole. Operates on a normal round object
+  // (so it shows up in Rounds and feeds analysis) plus currentHole/inProgress.
+  // ============================================================
+  let playRound = null;
+
+  function playMe() { return playRound.players.find(p => p.isMe) || playRound.players[0]; }
+
+  function persistPlay() {
+    if (!playRound) return;
+    playRound.updatedAt = new Date().toISOString();
+    const idx = state.rounds.findIndex(r => r.id === playRound.id);
+    if (idx >= 0) state.rounds[idx] = playRound; else state.rounds.push(playRound);
+    saveLocal();
+    scheduleSync();
+  }
+
+  function openPlay() {
+    const resumable = (state.rounds || []).filter(r => !r.deleted && r.inProgress)
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+    if (resumable) {
+      playRound = resumable;
+      if (!playRound.currentHole) playRound.currentHole = 1;
+    } else {
+      playRound = newRoundDraft();
+      playRound.currentHole = 1;
+      playRound.inProgress = true;
+    }
+    const sel = document.getElementById('play-course');
+    const live = state.courses.filter(c => !c.deleted).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    sel.innerHTML = '<option value="">Select a course...</option>' +
+      live.map(c => '<option value="' + c.id + '"' + (c.id === playRound.courseId ? ' selected' : '') + '>' + escapeHtml(c.name || 'Untitled') + '</option>').join('');
+    document.getElementById('play-date').value = playRound.date;
+    refreshPlayTees();
+    renderPlayHole();
+    document.getElementById('play-modal').classList.add('visible');
+  }
+  function closePlay() {
+    document.getElementById('play-modal').classList.remove('visible');
+    playRound = null;
+    renderRounds();
+  }
+  function refreshPlayTees() {
+    const course = getCourseById(playRound.courseId);
+    const tees = (course && course.tees && course.tees.length) ? course.tees : [];
+    document.getElementById('play-tee').innerHTML = '<option value="">Tee</option>' +
+      tees.map(t => '<option value="' + escapeHtml(t) + '"' + (t === playRound.tee ? ' selected' : '') + '>' + escapeHtml(t) + '</option>').join('');
+  }
+  function onPlayCourseChange() {
+    playRound.courseId = document.getElementById('play-course').value;
+    playRound.tee = '';
+    playRound.currentHole = 1;
+    refreshPlayTees();
+    persistPlay();
+    renderPlayHole();
+  }
+  function onPlayTeeChange() {
+    playRound.tee = document.getElementById('play-tee').value;
+    persistPlay();
+    renderPlayHole();
+  }
+  function onPlayDateChange() {
+    playRound.date = document.getElementById('play-date').value || todayISO();
+    persistPlay();
+  }
+  function playCurHole() {
+    const course = getCourseById(playRound.courseId);
+    if (!course || !course.holes.length) return null;
+    playRound.currentHole = Math.min(course.holes.length, Math.max(1, playRound.currentHole || 1));
+    return course.holes[playRound.currentHole - 1];
+  }
+  function playGo(delta) {
+    const course = getCourseById(playRound.courseId);
+    if (!course || !course.holes.length) return;
+    playRound.currentHole = Math.min(course.holes.length, Math.max(1, (playRound.currentHole || 1) + delta));
+    persistPlay();
+    renderPlayHole();
+  }
+  function playAdjust(delta) {
+    const hole = playCurHole(); if (!hole) return;
+    const p = playMe(); const key = String(hole.hole);
+    const has = p.holes[key] && typeof p.holes[key].strokes === 'number';
+    const par = (typeof hole.par === 'number') ? hole.par : 4;
+    let next = has ? (p.holes[key].strokes + delta) : par;   // first tap lands on par
+    next = Math.min(20, Math.max(1, next));
+    if (!p.holes[key]) p.holes[key] = {};
+    p.holes[key].strokes = next;
+    persistPlay();
+    renderPlayHole();
+  }
+  function playSetPar() {
+    const hole = playCurHole(); if (!hole) return;
+    const p = playMe(); const key = String(hole.hole);
+    if (!p.holes[key]) p.holes[key] = {};
+    p.holes[key].strokes = (typeof hole.par === 'number') ? hole.par : 4;
+    persistPlay(); renderPlayHole();
+  }
+  function playClear() {
+    const hole = playCurHole(); if (!hole) return;
+    delete playMe().holes[String(hole.hole)];
+    persistPlay(); renderPlayHole();
+  }
+  function renderPlayHole() {
+    const empty = document.getElementById('play-empty');
+    const active = document.getElementById('play-active');
+    const finishBtn = document.getElementById('play-finish-btn');
+    const course = getCourseById(playRound.courseId);
+    if (!course || !course.holes.length) {
+      empty.style.display = 'block'; active.style.display = 'none'; finishBtn.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none'; active.style.display = 'block'; finishBtn.style.display = 'inline-block';
+    const n = course.holes.length;
+    playRound.currentHole = Math.min(n, Math.max(1, playRound.currentHole || 1));
+    const hole = course.holes[playRound.currentHole - 1];
+    const p = playMe();
+    const cell = p.holes[String(hole.hole)];
+    const score = (cell && typeof cell.strokes === 'number') ? cell.strokes : null;
+    document.getElementById('play-holeno').textContent = 'Hole ' + hole.hole + ' / ' + n;
+    const parts = [];
+    if (typeof hole.par === 'number') parts.push('Par ' + hole.par);
+    if (hole.handicap != null && hole.handicap !== '') parts.push('SI ' + hole.handicap);
+    const y = (hole.yards && playRound.tee && hole.yards[playRound.tee] != null) ? hole.yards[playRound.tee] : null;
+    if (y != null) parts.push(y + ' yds' + (playRound.tee ? ' (' + escapeHtml(playRound.tee) + ')' : ''));
+    document.getElementById('play-holeinfo').textContent = parts.join('  ·  ');
+    document.getElementById('play-score').textContent = (score == null ? '–' : score);
+    const t = playerTotals(p, course);
+    document.getElementById('play-total').textContent = t.played
+      ? (t.strokes + ' strokes · ' + fmtToPar(t.toPar) + ' thru ' + t.played)
+      : 'No scores entered yet';
+    document.getElementById('play-prev').disabled = (playRound.currentHole <= 1);
+    document.getElementById('play-next').disabled = (playRound.currentHole >= n);
+  }
+  function finishPlay() {
+    if (!playRound) return;
+    playRound.inProgress = false;
+    persistPlay();
+    closePlay();
+  }
+
   function scanNewRound() {
     openRoundForm();
     // A round needs a course to map holes; nudge if none is picked yet.
@@ -3861,6 +4018,49 @@
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeScan()">Cancel</button>
         <button class="btn-primary" onclick="readScorecard()">Read scorecard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="play-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Play a round</h3>
+      <button class="modal-close" onclick="closePlay()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="scan-row">
+        <select id="play-course" onchange="onPlayCourseChange()" style="flex:1;min-width:140px;"></select>
+        <select id="play-tee" onchange="onPlayTeeChange()" style="width:auto;"></select>
+        <input type="date" id="play-date" onchange="onPlayDateChange()" style="width:auto;">
+      </div>
+      <div id="play-empty" class="scan-hint" style="display:none;">Pick a course above to start. No courses yet? Add one on the Courses tab (try Find course).</div>
+      <div id="play-active" style="display:none;">
+        <div class="play-hero">
+          <div class="play-holeno" id="play-holeno"></div>
+          <div class="play-holeinfo" id="play-holeinfo"></div>
+        </div>
+        <div class="play-score-row">
+          <button type="button" class="play-step" onclick="playAdjust(-1)">−</button>
+          <div class="play-score-num" id="play-score">–</div>
+          <button type="button" class="play-step" onclick="playAdjust(1)">+</button>
+        </div>
+        <div class="play-quick">
+          <button type="button" class="play-btn" onclick="playSetPar()">Par</button>
+          <button type="button" class="play-btn" onclick="playClear()">Clear</button>
+        </div>
+        <div class="play-total" id="play-total"></div>
+        <div class="play-nav">
+          <button type="button" class="play-btn" id="play-prev" onclick="playGo(-1)">◀ Prev</button>
+          <button type="button" class="play-btn" id="play-next" onclick="playGo(1)">Next ▶</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="play-finish-btn" onclick="finishPlay()" style="display:none;">Finish round</button>
+      <div class="modal-footer-right">
+        <button class="btn-primary" onclick="closePlay()">Done</button>
       </div>
     </div>
   </div>
