@@ -1676,6 +1676,8 @@
     const signedIn = !!(a && a.email);
     document.getElementById('account-signedin').style.display = signedIn ? 'block' : 'none';
     document.getElementById('account-form').style.display = signedIn ? 'none' : 'block';
+    document.getElementById('account-foot-out').style.display = signedIn ? 'none' : 'flex';
+    document.getElementById('account-foot-in').style.display = signedIn ? 'flex' : 'none';
     if (signedIn) document.getElementById('account-whoami').textContent = a.email;
     setAccountMsg('');
   }
@@ -2335,7 +2337,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.6.0";
+  const APP_VERSION = "1.6.1";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -3549,19 +3551,21 @@
         <input type="text" inputmode="email" id="account-email" placeholder="you@example.com" autocapitalize="off" autocorrect="off">
         <label>Password</label>
         <input type="password" id="account-password" placeholder="at least 6 characters" autocapitalize="off" autocorrect="off">
-        <div class="modal-footer-right" style="margin-top:12px;">
-          <button class="btn-secondary" onclick="doSignUp()">Create account</button>
-          <button class="btn-primary" onclick="doSignIn()">Sign in</button>
-        </div>
       </div>
       <div id="account-signedin" style="display:none">
         <p class="modal-help">Signed in as <strong id="account-whoami"></strong>.</p>
-        <div class="modal-footer-right" style="margin-top:12px;">
-          <button class="btn-secondary" onclick="testBackend()">Test backend</button>
-          <button class="btn-danger" onclick="doSignOut()">Sign out</button>
-        </div>
       </div>
       <p class="modal-help" id="account-msg"></p>
+    </div>
+    <div class="modal-footer">
+      <div id="account-foot-out" class="modal-footer-right">
+        <button class="btn-secondary" onclick="doSignIn()">Sign in</button>
+        <button class="btn-primary" onclick="doSignUp()">Create account</button>
+      </div>
+      <div id="account-foot-in" class="modal-footer-right" style="display:none">
+        <button class="btn-danger" onclick="doSignOut()">Sign out</button>
+        <button class="btn-primary" onclick="testBackend()">Test backend</button>
+      </div>
     </div>
   </div>
 </div>
