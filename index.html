@@ -2354,7 +2354,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.8.0";
+  const APP_VERSION = "1.9.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -3553,6 +3553,7 @@
     refreshPlayTees();
     persistPlay();
     renderPlayHole();
+    setGpsStatus('');
   }
   function onPlayTeeChange() {
     playRound.tee = document.getElementById('play-tee').value;
@@ -3575,6 +3576,7 @@
     playRound.currentHole = Math.min(course.holes.length, Math.max(1, (playRound.currentHole || 1) + delta));
     persistPlay();
     renderPlayHole();
+    setGpsStatus('');
   }
   function playAdjust(delta) {
     const hole = playCurHole(); if (!hole) return;
@@ -3636,6 +3638,52 @@
     playRound.inProgress = false;
     persistPlay();
     closePlay();
+  }
+
+  // ---------- GPS hole detection (OSM via the backend) ----------
+  function setGpsStatus(msg) {
+    var el = document.getElementById('play-gps-status');
+    if (el) el.textContent = msg || '';
+  }
+  function haversineM(a, b) {
+    var R = 6371000, toRad = function (d) { return d * Math.PI / 180; };
+    var dLat = toRad(b[0] - a[0]), dLng = toRad(b[1] - a[1]);
+    var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+  function metersToYards(m) { return Math.round(m * 1.09361); }
+  function detectHole() {
+    var course = getCourseById(playRound && playRound.courseId);
+    if (!course || !course.holes.length) { setGpsStatus('Pick a course first.'); return; }
+    if (!navigator.geolocation) { setGpsStatus('This device has no GPS.'); return; }
+    setGpsStatus('Getting your location...');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var meLoc = [pos.coords.latitude, pos.coords.longitude];
+      setGpsStatus('Finding the course...');
+      fetch(API_BASE + '/api/golf/holes?lat=' + meLoc[0] + '&lng=' + meLoc[1])
+        .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, status: resp.status, data: data }; }); })
+        .then(function (res) {
+          if (!res.ok) { setGpsStatus('GPS lookup failed: ' + ((res.data && res.data.detail) || res.status)); return; }
+          var holes = (res.data.holes || []).filter(function (x) { return x.ref != null && x.points && x.points.length; });
+          if (!holes.length) { setGpsStatus("This course isn't mapped for GPS yet - use Prev/Next."); return; }
+          var best = null, bestD = Infinity;
+          for (var i = 0; i < holes.length; i++) {
+            var d = Infinity;
+            for (var j = 0; j < holes[i].points.length; j++) { var dd = haversineM(meLoc, holes[i].points[j]); if (dd < d) d = dd; }
+            if (d < bestD) { bestD = d; best = holes[i]; }
+          }
+          if (!best) { setGpsStatus('Could not match a hole. Use Prev/Next.'); return; }
+          playRound.currentHole = Math.min(course.holes.length, Math.max(1, best.ref));
+          persistPlay();
+          renderPlayHole();
+          var toGreen = best.green ? metersToYards(haversineM(meLoc, best.green)) : null;
+          setGpsStatus('On hole ' + best.ref + (toGreen != null ? ' · ~' + toGreen + ' yds to green' : ''));
+        })
+        .catch(function (e) { setGpsStatus('GPS lookup failed: ' + e.message); });
+    }, function (err) {
+      setGpsStatus('Location unavailable: ' + err.message + '. Allow location for this site.');
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 });
   }
 
   function scanNewRound() {
@@ -4051,6 +4099,10 @@
           <button type="button" class="play-btn" onclick="playClear()">Clear</button>
         </div>
         <div class="play-total" id="play-total"></div>
+        <div style="text-align:center;margin:0 0 12px;">
+          <button type="button" class="play-btn" id="play-gps-btn" onclick="detectHole()">📍 Detect hole</button>
+          <div id="play-gps-status" style="font-size:0.85rem;color:#555;margin-top:6px;min-height:1em;"></div>
+        </div>
         <div class="play-nav">
           <button type="button" class="play-btn" id="play-prev" onclick="playGo(-1)">◀ Prev</button>
           <button type="button" class="play-btn" id="play-next" onclick="playGo(1)">Next ▶</button>
