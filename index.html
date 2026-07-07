@@ -2337,7 +2337,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.6.1";
+  const APP_VERSION = "1.7.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2935,6 +2935,86 @@
   // ---------- Scan a scorecard ----------
   // "Scan scorecard" from the Courses tab starts a brand-new course draft and
   // opens the scanner on top of the editor; the read result fills the draft.
+  // ---------- Find a course (GolfCourseAPI via the backend) ----------
+  let foundCourses = [];
+  function openFindCourse() {
+    document.getElementById('find-course-q').value = '';
+    document.getElementById('find-course-results').innerHTML = '';
+    setFindStatus('');
+    foundCourses = [];
+    document.getElementById('find-course-modal').classList.add('visible');
+    setTimeout(function () { var el = document.getElementById('find-course-q'); if (el) el.focus(); }, 50);
+  }
+  function closeFindCourse() {
+    document.getElementById('find-course-modal').classList.remove('visible');
+  }
+  function setFindStatus(msg) {
+    var el = document.getElementById('find-course-status');
+    if (el) el.textContent = msg || '';
+  }
+  async function runCourseSearch() {
+    var q = document.getElementById('find-course-q').value.trim();
+    if (!q) { setFindStatus('Type a course name to search.'); return; }
+    setFindStatus('Searching...');
+    document.getElementById('find-course-results').innerHTML = '';
+    try {
+      var resp = await fetch(API_BASE + '/api/courses/search?q=' + encodeURIComponent(q));
+      var data = {};
+      try { data = await resp.json(); } catch (e) {}
+      if (!resp.ok) { setFindStatus('Search failed: ' + (data.detail || ('HTTP ' + resp.status))); return; }
+      foundCourses = data.results || [];
+      if (!foundCourses.length) { setFindStatus('No matches. Try the club name, or use Scan scorecard.'); return; }
+      setFindStatus(foundCourses.length + ' result' + (foundCourses.length > 1 ? 's' : '') + ' - tap one to fill it in.');
+      renderCourseResults();
+    } catch (e) { setFindStatus('Search failed: ' + e.message); }
+  }
+  function renderCourseResults() {
+    var html = '';
+    for (var i = 0; i < foundCourses.length; i++) {
+      var c = foundCourses[i];
+      var sub = [(c.club && c.club !== c.name) ? c.club : '', c.location].filter(Boolean).join(' - ');
+      var nh = (c.draft && c.draft.holes) ? c.draft.holes.length : 0;
+      var nt = (c.draft && c.draft.tees) ? c.draft.tees.length : 0;
+      html += '<button type="button" class="settings-fullbtn" style="text-align:left;" onclick="applyFoundCourse(' + i + ')">'
+            + '<strong>' + escapeHtml(c.name || 'Course') + '</strong>'
+            + (sub ? '<br><span style="font-size:0.8rem;opacity:0.7;">' + escapeHtml(sub) + '</span>' : '')
+            + (nh ? '<br><span style="font-size:0.75rem;opacity:0.6;">' + nh + ' holes · ' + nt + ' tee set' + (nt === 1 ? '' : 's') + '</span>' : '')
+            + '</button>';
+    }
+    document.getElementById('find-course-results').innerHTML = html;
+  }
+  function applyFoundCourse(i) {
+    var c = foundCourses[i];
+    if (!c || !c.draft) return;
+    var d = c.draft;
+    if (!courseDraft) courseDraft = newCourseDraft();
+    courseDraft.name = d.name || courseDraft.name || '';
+    document.getElementById('course-name').value = courseDraft.name;
+    if (d.city) { courseDraft.city = d.city; document.getElementById('course-city').value = d.city; }
+    var tees = Array.isArray(d.tees) ? d.tees.filter(function (t) { return typeof t === 'string' && t.trim(); }) : [];
+    if (tees.length) { courseDraft.tees = tees; document.getElementById('course-tees').value = tees.join(', '); }
+    if (Array.isArray(d.holes) && d.holes.length) {
+      document.getElementById('course-holes-count').value = (d.holes.length === 9) ? '9' : '18';
+      var holes = [];
+      for (var j = 0; j < d.holes.length; j++) {
+        var src = d.holes[j] || {};
+        var yards = {};
+        if (src.yards && typeof src.yards === 'object') {
+          for (var k in src.yards) { var v = src.yards[k]; if (v != null && v !== '') yards[k] = Number(v); }
+        }
+        holes.push({
+          hole: Number(src.hole) || (j + 1),
+          par: (src.par == null || src.par === '') ? null : Number(src.par),
+          handicap: (src.handicap == null || src.handicap === '') ? null : Number(src.handicap),
+          yards: yards
+        });
+      }
+      courseDraft.holes = holes;
+    }
+    renderCourseGrid();
+    closeFindCourse();
+  }
+
   function scanNewCourse() {
     openCourseForm();
     openScan();
@@ -3709,6 +3789,7 @@
       <input type="text" id="course-city" placeholder="Optional">
 
       <div class="scan-row">
+        <button class="btn-primary" type="button" onclick="openFindCourse()">Find course</button>
         <button class="btn-secondary" type="button" onclick="openScan()">Scan scorecard</button>
         <select id="course-holes-count" onchange="setHoleCount()">
           <option value="18">18 holes</option>
@@ -3734,6 +3815,24 @@
         <button class="btn-secondary" onclick="closeCourseForm()">Cancel</button>
         <button class="btn-primary" onclick="saveCourse()">Save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="find-course-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Find a course</h3>
+      <button class="modal-close" onclick="closeFindCourse()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-help">Search the course database and auto-fill the scorecard - par, stroke index, and yardage for every tee.</p>
+      <div class="scan-row">
+        <input type="text" id="find-course-q" placeholder="Course or club name" autocapitalize="off" autocorrect="off" style="flex:1;min-width:160px;" onkeydown="if(event.key==='Enter'){event.preventDefault();runCourseSearch();}">
+        <button class="btn-primary" type="button" onclick="runCourseSearch()">Search</button>
+      </div>
+      <p class="modal-help" id="find-course-status"></p>
+      <div id="find-course-results"></div>
     </div>
   </div>
 </div>
