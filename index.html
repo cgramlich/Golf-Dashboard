@@ -2354,7 +2354,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.10.3";
+  const APP_VERSION = "1.10.4";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2997,7 +2997,28 @@
         }
         return;
       }
-      setFindStatus(foundCourses.length + ' result' + (foundCourses.length > 1 ? 's' : '') + ' - tap one to fill it in.');
+      // Came from a "Near me" tap? We know where that course sits, so rank the
+      // same-name matches by nearness and put the local one first (fixes the
+      // "Brook Hollow, TX vs Hollow Brook elsewhere" pick).
+      if (pendingNearby && pendingNearby.lat != null && pendingNearby.lng != null) {
+        var here = [pendingNearby.lat, pendingNearby.lng];
+        for (var r = 0; r < foundCourses.length; r++) {
+          var fc = foundCourses[r];
+          fc._mi = (fc.lat != null && fc.lng != null)
+            ? Math.round(haversineM(here, [fc.lat, fc.lng]) / 1609.34)
+            : null;
+        }
+        foundCourses.sort(function (x, y) {
+          if (x._mi == null && y._mi == null) return 0;
+          if (x._mi == null) return 1;
+          if (y._mi == null) return -1;
+          return x._mi - y._mi;
+        });
+      }
+      var near = foundCourses[0];
+      var closeHint = (pendingNearby && near && near._mi != null && near._mi <= 30)
+        ? ' Closest match is ' + near._mi + ' mi away - likely the one you tapped.' : '';
+      setFindStatus(foundCourses.length + ' result' + (foundCourses.length > 1 ? 's' : '') + ' - tap one to fill it in.' + closeHint);
       renderCourseResults();
     } catch (e) { setFindStatus('Search failed: ' + e.message); }
   }
@@ -3005,7 +3026,8 @@
     var html = '';
     for (var i = 0; i < foundCourses.length; i++) {
       var c = foundCourses[i];
-      var sub = [(c.club && c.club !== c.name) ? c.club : '', c.location].filter(Boolean).join(' - ');
+      var loc = c.location + ((c._mi != null) ? (c.location ? ' · ' : '') + c._mi + ' mi away' : '');
+      var sub = [(c.club && c.club !== c.name) ? c.club : '', loc].filter(Boolean).join(' - ');
       var nh = (c.draft && c.draft.holes) ? c.draft.holes.length : 0;
       var nt = (c.draft && c.draft.tees) ? c.draft.tees.length : 0;
       html += '<button type="button" class="settings-fullbtn" style="text-align:left;" onclick="applyFoundCourse(' + i + ')">'
