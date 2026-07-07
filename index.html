@@ -2354,7 +2354,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.10.2";
+  const APP_VERSION = "1.10.3";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2954,11 +2954,14 @@
   // opens the scanner on top of the editor; the read result fills the draft.
   // ---------- Find a course (GolfCourseAPI via the backend) ----------
   let foundCourses = [];
+  let pendingNearby = null;   // OSM course tapped in "Near me", for the add-anyway fallback
   function openFindCourse() {
     document.getElementById('find-course-q').value = '';
     document.getElementById('find-course-results').innerHTML = '';
     setFindStatus('');
     foundCourses = [];
+    pendingNearby = null;
+    nearbyCourses = [];
     document.getElementById('find-course-modal').classList.add('visible');
     setTimeout(function () { var el = document.getElementById('find-course-q'); if (el) el.focus(); }, 50);
   }
@@ -2969,10 +2972,13 @@
     var el = document.getElementById('find-course-status');
     if (el) el.textContent = msg || '';
   }
-  async function runCourseSearch() {
+  async function runCourseSearch(nearbyCtx) {
+    // nearbyCtx is the OSM course when called from a "Near me" tap; a manual
+    // search passes nothing, which clears any stale add-anyway fallback.
+    pendingNearby = nearbyCtx || null;
     var q = document.getElementById('find-course-q').value.trim();
     if (!q) { setFindStatus('Type a course name to search.'); return; }
-    setFindStatus('Searching...');
+    setFindStatus(pendingNearby ? ('Looking up the scorecard for ' + q + '...') : 'Searching...');
     document.getElementById('find-course-results').innerHTML = '';
     try {
       var resp = await fetch(API_BASE + '/api/courses/search?q=' + encodeURIComponent(q));
@@ -2980,7 +2986,17 @@
       try { data = await resp.json(); } catch (e) {}
       if (!resp.ok) { setFindStatus('Search failed: ' + (data.detail || ('HTTP ' + resp.status))); return; }
       foundCourses = data.results || [];
-      if (!foundCourses.length) { setFindStatus('No matches. Try the club name, or use Scan scorecard.'); return; }
+      if (!foundCourses.length) {
+        if (pendingNearby) {
+          // No scorecard on file - still let them add the course from map data.
+          setFindStatus('No scorecard on file for "' + pendingNearby.name + '". You can add it now and fill the card in yourself.');
+          document.getElementById('find-course-results').innerHTML =
+            '<button type="button" class="btn-primary" style="width:100%;margin-top:8px;" onclick="addNearbyBare()">+ Add &ldquo;' + escapeHtml(pendingNearby.name) + '&rdquo; to my courses</button>';
+        } else {
+          setFindStatus('No matches. Try the club name, or use Scan scorecard.');
+        }
+        return;
+      }
       setFindStatus(foundCourses.length + ' result' + (foundCourses.length > 1 ? 's' : '') + ' - tap one to fill it in.');
       renderCourseResults();
     } catch (e) { setFindStatus('Search failed: ' + e.message); }
@@ -3034,26 +3050,45 @@
 
   // ---------- Near me (nearby courses via GPS + OSM) ----------
   let nearbyCourses = [];
+  let lastMeLoc = null;       // cached GPS fix so the distance selector re-searches instantly
+  function selectedRadiusM() {
+    var el = document.getElementById('find-course-radius');
+    var m = el ? parseInt(el.value, 10) : 40234;
+    return (m && m > 0) ? m : 40234;
+  }
+  function radiusLabel() {
+    var el = document.getElementById('find-course-radius');
+    return el ? (el.options[el.selectedIndex].text) : '25 mi';
+  }
+  // Tapping "Near me" gets a fresh GPS fix, then searches.
   function nearMe() {
     if (!navigator.geolocation) { setFindStatus('This device has no GPS.'); return; }
     setFindStatus('Getting your location...');
     document.getElementById('find-course-results').innerHTML = '';
     navigator.geolocation.getCurrentPosition(function (pos) {
-      var meLoc = [pos.coords.latitude, pos.coords.longitude];
-      setFindStatus('Finding courses near you...');
-      fetch(API_BASE + '/api/courses/nearby?lat=' + meLoc[0] + '&lng=' + meLoc[1])
-        .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, status: resp.status, data: data }; }); })
-        .then(function (res) {
-          if (!res.ok) { setFindStatus('Nearby search failed: ' + ((res.data && res.data.detail) || res.status)); return; }
-          nearbyCourses = res.data.courses || [];
-          if (!nearbyCourses.length) { setFindStatus('No courses in the map data near you (' + meLoc[0].toFixed(5) + ', ' + meLoc[1].toFixed(5) + '). Type the course name instead.'); return; }
-          setFindStatus('Nearby courses - tap one to load its scorecard.');
-          renderNearby();
-        })
-        .catch(function (e) { setFindStatus('Nearby search failed: ' + e.message); });
+      lastMeLoc = [pos.coords.latitude, pos.coords.longitude];
+      searchNearby();
     }, function (err) {
       setFindStatus('Location unavailable: ' + err.message + '. Allow location, or type a name.');
     }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  }
+  // Runs the nearby search at the chosen distance, reusing the last GPS fix.
+  // Called by nearMe() and whenever the distance selector changes.
+  function searchNearby() {
+    if (!lastMeLoc) { return; }   // no fix yet - user must tap "Near me" first
+    var radius = selectedRadiusM();
+    setFindStatus('Finding courses within ' + radiusLabel() + '...');
+    document.getElementById('find-course-results').innerHTML = '';
+    fetch(API_BASE + '/api/courses/nearby?lat=' + lastMeLoc[0] + '&lng=' + lastMeLoc[1] + '&radius=' + radius)
+      .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, status: resp.status, data: data }; }); })
+      .then(function (res) {
+        if (!res.ok) { setFindStatus('Nearby search failed: ' + ((res.data && res.data.detail) || res.status)); return; }
+        nearbyCourses = res.data.courses || [];
+        if (!nearbyCourses.length) { setFindStatus('No courses within ' + radiusLabel() + '. Try a larger distance, or type the name.'); return; }
+        setFindStatus(nearbyCourses.length + ' course' + (nearbyCourses.length > 1 ? 's' : '') + ' within ' + radiusLabel() + ' - tap one to add it.');
+        renderNearby();
+      })
+      .catch(function (e) { setFindStatus('Nearby search failed: ' + e.message); });
   }
   function renderNearby() {
     var html = '';
@@ -3070,11 +3105,26 @@
     }
     document.getElementById('find-course-results').innerHTML = html;
   }
+  // Tapping a nearby course tries to auto-fill its full scorecard from the
+  // course database by name; if that database has no match, we still let you
+  // add the course with just its name + city (fill the card in yourself).
   function pickNearby(i) {
     var c = nearbyCourses[i];
     if (!c) return;
     document.getElementById('find-course-q').value = c.name;
-    runCourseSearch();
+    runCourseSearch(c);
+  }
+  // Fallback add: seed the course editor from the map data and reveal it,
+  // ready to Save, even when no scorecard was found.
+  function addNearbyBare() {
+    var c = pendingNearby;
+    if (!c) return;
+    if (!courseDraft) courseDraft = newCourseDraft();
+    courseDraft.name = c.name || courseDraft.name || '';
+    document.getElementById('course-name').value = courseDraft.name;
+    if (c.city) { courseDraft.city = c.city; document.getElementById('course-city').value = c.city; }
+    renderCourseGrid();
+    closeFindCourse();
   }
 
   function scanNewCourse() {
@@ -4080,7 +4130,16 @@
       <div class="scan-row">
         <input type="text" id="find-course-q" placeholder="Course or club name" autocapitalize="off" autocorrect="off" style="flex:1;min-width:160px;" onkeydown="if(event.key==='Enter'){event.preventDefault();runCourseSearch();}">
         <button class="btn-primary" type="button" onclick="runCourseSearch()">Search</button>
+      </div>
+      <div class="scan-row" style="align-items:center;gap:8px;flex-wrap:wrap;">
         <button class="play-btn" type="button" onclick="nearMe()">📍 Near me</button>
+        <label for="find-course-radius" style="font-size:0.85rem;opacity:0.8;">within</label>
+        <select id="find-course-radius" onchange="searchNearby()" style="padding:6px 8px;border-radius:8px;">
+          <option value="8047">5 mi</option>
+          <option value="16093">10 mi</option>
+          <option value="40234" selected>25 mi</option>
+          <option value="80467">50 mi</option>
+        </select>
       </div>
       <p class="modal-help" id="find-course-status"></p>
       <div id="find-course-results"></div>

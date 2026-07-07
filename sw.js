@@ -26,7 +26,7 @@
    - everything else            -> default network
 */
 
-const VERSION     = "1.10.2";                     // keep in lockstep with APP_VERSION
+const VERSION     = "1.10.3";                     // keep in lockstep with APP_VERSION
 const SHELL_CACHE = "golf-shell-" + VERSION;
 const ASSET_CACHE = "golf-assets-" + VERSION;
 

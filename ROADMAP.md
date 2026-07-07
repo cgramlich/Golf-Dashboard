@@ -45,6 +45,18 @@ production pattern, minus commerce/store for now:
 - [ ] **Phase 4 — data migration.** Move existing `data.json` into Supabase,
   then retire the `golf-data` GitHub-token sync path.
 
+## Potential upgrades (parked)
+
+- **Paid / self-hosted Overpass for "Near me".** Today the nearby-courses search
+  races several free public Overpass mirrors (volunteer copies of the OSM query
+  service). The fix in place (prefer a mirror that actually returns courses,
+  ignore fast-but-empty answers) makes this reliable, but the mirrors are still
+  third-party and best-effort. If they get flaky, the clean escape hatch is a
+  **paid Overpass/geo provider** (a few $/mo, guaranteed uptime + complete data,
+  no mirror roulette) or **self-hosting** our own Overpass/PostGIS instance
+  (full control, but real infra: ~150 GB planet dump, a bigger server, and
+  keeping it updated). Paid provider is the pragmatic middle option.
+
 ## Notes / open items
 
 - **Home-screen cutover:** re-add the app to the phone home screen from
