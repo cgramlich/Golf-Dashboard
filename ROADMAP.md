@@ -44,6 +44,31 @@ production pattern, minus commerce/store for now:
   `/api/ai/relay`; switch sync from GitHub PAT → Supabase-JWT API calls.
 - [ ] **Phase 4 — data migration.** Move existing `data.json` into Supabase,
   then retire the `golf-data` GitHub-token sync path.
+- [ ] **Phase 5 — on-course GPS rangefinder.** Precise distances while playing:
+  distance to the **center** (and front/back) of the green, and carry distances
+  to hazards (bunkers, water), plus "which hole am I on." This needs surveyed
+  green + hazard coordinates, which our scorecard API does **not** have.
+
+## Data providers (decided)
+
+Layered, with a clear fallback order — the app should degrade gracefully, never
+dead-end:
+
+- **Green / hazard / hole GPS coordinates → paid provider (primary).** Trialing
+  **Golf Intelligence** (green centers + hazards + tee boxes, rangefinder-focused,
+  free 200-credit test tier); **golfapi.io** is the value alternative that also
+  bundles scorecards. Chosen on which one actually has *our* courses mapped.
+- **Scorecards (par / stroke index / yardage) → paid provider first, then
+  GolfCourseAPI as fallback.** If the paid GPS provider also serves the scorecard
+  (golfapi.io / Golf Intelligence do), use it so hole numbers line up with the GPS
+  data; if it's missing a course's card, fall back to **GolfCourseAPI** (kept, free).
+- **Nearby course list + rough hole detection → OpenStreetMap / Overpass (free).**
+  Unchanged. The paid provider can later supersede "detect hole" once its data is
+  in place.
+- **Cost control:** fetch a course's geometry **once, cache it in Supabase**, and
+  compute live distances server/client-side from the stored coords + phone GPS —
+  so the paid API is hit ~once per course, not per shot. Keeps spend at pennies for
+  a single-user app and argues for optimizing on data quality, not price.
 
 ## Potential upgrades (parked)
 
