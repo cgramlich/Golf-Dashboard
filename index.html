@@ -1776,7 +1776,10 @@
     setAccountMsg('Signing in...');
     try {
       await signInAccount(email, pw);
-      updateAccountStatus(); renderAccountModal(); setAccountMsg('Signed in.');
+      updateAccountStatus(); renderAccountModal(); updateSyncStatus();
+      setAccountMsg('Signed in. Syncing...');
+      runSync().then(() => setAccountMsg('Signed in and synced.'))
+               .catch(e2 => setAccountMsg('Signed in. Sync error: ' + e2.message, true));
     } catch (e) { setAccountMsg('Sign in failed: ' + e.message, true); }
   }
   async function doSignUp() {
@@ -1788,14 +1791,18 @@
     try {
       await signUpAccount(email, pw);
       if (getAuth() && getAuth().access_token) {
-        updateAccountStatus(); renderAccountModal(); setAccountMsg('Account created and signed in.');
+        updateAccountStatus(); renderAccountModal(); updateSyncStatus();
+        setAccountMsg('Account created. Syncing...');
+        runSync().then(() => setAccountMsg('Account created and synced.'))
+                 .catch(e2 => setAccountMsg('Account created. Sync error: ' + e2.message, true));
       } else {
         setAccountMsg('Account created. If email confirmation is on, confirm via email then sign in.');
       }
     } catch (e) { setAccountMsg('Sign up failed: ' + e.message, true); }
   }
   function doSignOut() {
-    clearAuth(); updateAccountStatus(); renderAccountModal(); setAccountMsg('Signed out.');
+    clearAuth(); updateAccountStatus(); renderAccountModal(); updateSyncStatus();
+    setAccountMsg('Signed out. Your log stays on this device.');
   }
   async function testBackend() {
     setAccountMsg('Testing backend...');
@@ -1860,13 +1867,17 @@
       return;
     }
     setSyncConfig(repo, path, token);
-    updateSyncStatus();
     try {
-      await runSync();
+      await githubImportOnce();   // pull the old data.json into local state
+      await runSync();            // push it up to your account (no-op if not signed in)
+      updateSyncStatus();
       closeSyncSettings();
+      alert(getAuth()
+        ? 'Imported from GitHub and saved to your account.'
+        : 'Imported from GitHub into this device. Sign in (Account) to save it to your account.');
     } catch (err) {
-      alert('Sync failed: ' + err.message);
-      console.error('[sync] save+sync failed', err);
+      alert('Import failed: ' + err.message);
+      console.error('[sync] github import failed', err);
     }
   }
 
@@ -1878,11 +1889,12 @@
   }
 
   function updateSyncStatus() {
-    const cfg = getSyncConfig();
+    const signedIn = !!getAuth();
     const text = document.getElementById('sync-status-text');
+    if (!text) return;
     const last = localStorage.getItem(KEY_LAST);
-    if (!cfg.token) {
-      text.textContent = 'Sync: not configured';
+    if (!signedIn) {
+      text.textContent = 'Sync: sign in to enable';
     } else if (syncInFlight) {
       text.textContent = 'Sync: syncing...';
     } else if (lastSyncError) {
@@ -1903,7 +1915,7 @@
   }
 
   function scheduleSync() {
-    if (!getSyncConfig().token) return;
+    if (!getAuth()) return;
     if (syncTimer) clearTimeout(syncTimer);
     // Debounce: bursts of saves collapse to a single network round-trip.
     syncTimer = setTimeout(() => {
@@ -1911,7 +1923,67 @@
     }, 1500);
   }
 
-  async function runSync(retryCount) {
+  // ---------- sync (LinksCaptain backend: pull-merge-push per collection) ----------
+  // Personal data lives in Supabase behind the authed API. Pull every collection,
+  // merge with local (newer updatedAt wins; tombstones survive), save locally,
+  // then push the merged arrays back. Gated on being signed in - no GitHub PAT.
+  const SYNC_COLLECTIONS = ['entries', 'courses', 'rounds', 'analyses'];
+
+  async function runSync() {
+    if (syncInFlight) return;
+    if (!getAuth()) return;
+    const token = await getAccessToken();
+    if (!token) { lastSyncError = 'Sign in to sync'; updateSyncStatus(); return; }
+
+    syncInFlight = true;
+    logDiag('sync started');
+    updateSyncStatus();
+    try {
+      // 1. Pull every collection into a remote state object.
+      const remoteState = { version: 1, entries: [], courses: [], rounds: [], analyses: [] };
+      for (const cname of SYNC_COLLECTIONS) {
+        const resp = await apiFetch('/api/collection/' + cname);
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error('GET ' + cname + ' ' + resp.status + ': ' + txt.slice(0, 160));
+        }
+        const arr = await resp.json();
+        remoteState[cname] = Array.isArray(arr) ? arr : [];
+      }
+      const remoteNorm = normalizeState(remoteState);
+
+      // 2. Merge -> local
+      state = mergeStates(state, remoteNorm);
+      saveLocal();
+      renderEntries(); renderCourses(); renderRounds();
+
+      // 3. Push merged arrays back (upsert + prune, per collection).
+      for (const cname of SYNC_COLLECTIONS) {
+        const resp = await apiFetch('/api/collection/' + cname, {
+          method: 'PUT', body: JSON.stringify(state[cname] || [])
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error('PUT ' + cname + ' ' + resp.status + ': ' + txt.slice(0, 160));
+        }
+      }
+      localStorage.setItem(KEY_LAST, new Date().toISOString());
+      lastSyncError = null;
+      logDiag('sync ok');
+    } catch (err) {
+      lastSyncError = err.message || String(err);
+      logDiag('sync error: ' + lastSyncError);
+      throw err;
+    } finally {
+      syncInFlight = false;
+      updateSyncStatus();
+    }
+  }
+
+  // ---------- one-time import from the old GitHub data.json sync ----------
+  // Retained only so existing data can be pulled off GitHub into local state,
+  // from where runSync() pushes it up to the backend. Not auto-invoked.
+  async function githubImportOnce(retryCount) {
     retryCount = retryCount || 0;
     if (syncInFlight) return;
     const cfg = getSyncConfig();
@@ -1973,7 +2045,7 @@
       if (putResp.status === 409 && retryCount < 1) {
         // Another device wrote first. Re-pull, re-merge, re-push once.
         syncInFlight = false;
-        return runSync(retryCount + 1);
+        return githubImportOnce(retryCount + 1);
       }
       if (!putResp.ok) {
         const txt = await putResp.text();
@@ -2056,7 +2128,7 @@
     updateSyncStatus();
     // Auto-sync on launch if configured. Errors are logged; the UI keeps
     // working with local data either way.
-    if (getSyncConfig().token) {
+    if (getAuth()) {
       runSync().catch(err => console.error('[sync] initial sync failed', err));
     }
   });
@@ -2092,7 +2164,7 @@
     try { cfg = JSON.parse(localStorage.getItem(KEY_AI) || '{}'); } catch { cfg = {}; }
     return {
       key: cfg.key || '',
-      model: cfg.model || 'claude-sonnet-4-6'
+      model: cfg.model || 'claude-sonnet-5'
     };
   }
 
@@ -2415,7 +2487,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.11.0";
+  const APP_VERSION = "1.12.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2524,8 +2596,8 @@
 
     const syncSub = document.getElementById('set-sync-sub');
     if (syncSub) {
-      const cfg = getSyncConfig();
-      syncSub.textContent = cfg.token ? (cfg.repo || 'configured') : 'Not configured';
+      const a = getAuth();
+      syncSub.textContent = a ? ('Signed in as ' + (a.email || 'account')) : 'Sign in to sync';
     }
 
     const aiSub = document.getElementById('set-ai-sub');
@@ -2552,8 +2624,8 @@
   }
 
   function syncNow() {
-    if (!getSyncConfig().token) {
-      alert('Set up sync first \u2014 tap Configure next to Sync (GitHub).');
+    if (!getAuth()) {
+      alert('Sign in first \u2014 tap Account to sign in.');
       return;
     }
     runSync().then(renderSettings).catch(err => alert('Sync failed: ' + err.message));
@@ -2815,7 +2887,7 @@
 
   function getScanModel() {
     const m = localStorage.getItem(KEY_SCAN_MODEL);
-    return (m === 'claude-opus-4-8' || m === 'claude-sonnet-4-6') ? m : 'claude-sonnet-4-6';
+    return (m === 'claude-opus-4-8' || m === 'claude-sonnet-5') ? m : 'claude-sonnet-5';
   }
   function setScanModel(m) {
     localStorage.setItem(KEY_SCAN_MODEL, m);
@@ -2828,7 +2900,7 @@
       const s = document.getElementById(sid);
       const o = document.getElementById(oid);
       if (s && o) {
-        s.classList.toggle('active', m === 'claude-sonnet-4-6');
+        s.classList.toggle('active', m === 'claude-sonnet-5');
         o.classList.toggle('active', m === 'claude-opus-4-8');
       }
     }
@@ -4101,7 +4173,7 @@
       <label>Model</label>
       <select id="ai-model">
         <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — cheapest, fastest</option>
-        <option value="claude-sonnet-4-6" selected>Claude Sonnet 4.6 — balanced (default)</option>
+        <option value="claude-sonnet-5" selected>Claude Sonnet 5 — balanced (default)</option>
         <option value="claude-opus-4-8">Claude Opus 4.8 — best quality, most expensive</option>
       </select>
 
@@ -4239,7 +4311,7 @@
     <div class="modal-body">
       <label>Model</label>
       <div class="seg-toggle" role="group" aria-label="Scan model">
-        <button type="button" id="scan-model-sonnet" onclick="setScanModel('claude-sonnet-4-6')">Sonnet</button>
+        <button type="button" id="scan-model-sonnet" onclick="setScanModel('claude-sonnet-5')">Sonnet</button>
         <button type="button" id="scan-model-opus" onclick="setScanModel('claude-opus-4-8')">Opus</button>
       </div>
       <div class="scan-hint">Sonnet is cheaper and fast; Opus reads messy or faint cards better. Re-scan the same photo on each to compare.</div>
@@ -4354,7 +4426,7 @@
     <div class="modal-body">
       <label>Model</label>
       <div class="seg-toggle" role="group" aria-label="Scan model">
-        <button type="button" id="scan-model-sonnet-r" onclick="setScanModel('claude-sonnet-4-6')">Sonnet</button>
+        <button type="button" id="scan-model-sonnet-r" onclick="setScanModel('claude-sonnet-5')">Sonnet</button>
         <button type="button" id="scan-model-opus-r" onclick="setScanModel('claude-opus-4-8')">Opus</button>
       </div>
       <div class="scan-hint">Reads handwritten scores per player. Sonnet is cheaper; Opus reads messy handwriting better.</div>

@@ -40,10 +40,22 @@ production pattern, minus commerce/store for now:
 - [ ] **Phase 2 — backend.** Stand up `LinksCaptain-Cloud` (FastAPI + Supabase),
   golf schema (entries/courses/rounds/analyses), entitlement stub. **Needs infra
   first:** a new Supabase project + a hosting account (Railway or Render).
-- [ ] **Phase 3 — server-side AI + authed sync.** Move Anthropic calls to a
-  `/api/ai/relay`; switch sync from GitHub PAT → Supabase-JWT API calls.
-- [ ] **Phase 4 — data migration.** Move existing `data.json` into Supabase,
-  then retire the `golf-data` GitHub-token sync path.
+- [~] **Phase 3 — server-side AI + authed sync.**
+  - [x] **Authed sync (v1.12.0).** `runSync` now pulls/pushes the four
+    collections via `GET/PUT /api/collection/{name}` with the Supabase bearer
+    token, gated on being signed in. The GitHub path is demoted to a one-time
+    `githubImportOnce` (reachable from the old Sync modal) so existing data can
+    be pulled off `data.json` into local state, from where it pushes up.
+  - [ ] **AI relay.** Still pending: the three browser Anthropic calls
+    (`callAnthropic`, `callAnthropicChat`, `callAnthropicVision`) hit
+    `api.anthropic.com` with the user's key. Repoint them to `/api/ai/relay`
+    (backend already live, `ai:true`). Note: this moves AI cost onto the
+    server key. Also bump backend `ALLOWED_MODELS`/`DEFAULT_MODEL` to
+    `claude-sonnet-5` (done in the app in v1.12.0).
+- [ ] **Phase 4 — data migration.** No script needed: on the primary device
+  (which already holds the full log locally), sign in → `runSync` sees an empty
+  backend, merges (local wins), and pushes everything up. Do one final GitHub
+  import first to be sure local is complete, then retire the `golf-data` path.
 - [ ] **Phase 5 — on-course GPS rangefinder.** Precise distances while playing:
   distance to the **center** (and front/back) of the green, and carry distances
   to hazards (bunkers, water), plus "which hole am I on." This needs surveyed
