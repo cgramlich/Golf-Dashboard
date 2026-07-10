@@ -46,12 +46,13 @@ production pattern, minus commerce/store for now:
     token, gated on being signed in. The GitHub path is demoted to a one-time
     `githubImportOnce` (reachable from the old Sync modal) so existing data can
     be pulled off `data.json` into local state, from where it pushes up.
-  - [ ] **AI relay.** Still pending: the three browser Anthropic calls
-    (`callAnthropic`, `callAnthropicChat`, `callAnthropicVision`) hit
-    `api.anthropic.com` with the user's key. Repoint them to `/api/ai/relay`
-    (backend already live, `ai:true`). Note: this moves AI cost onto the
-    server key. Also bump backend `ALLOWED_MODELS`/`DEFAULT_MODEL` to
-    `claude-sonnet-5` (done in the app in v1.12.0).
+  - [x] **AI relay (v1.13.0).** The three browser Anthropic calls
+    (`callAnthropic`, `callAnthropicChat`, `callAnthropicVision`) now route
+    through `aiRelay()` → `/api/ai/relay` with the Supabase token; the
+    Anthropic key box is removed and AI is gated on being signed in. Backend
+    `ALLOWED_MODELS`/`DEFAULT_MODEL` bumped to `claude-sonnet-5` (backend
+    v0.2.0). AI cost now runs on the server key. The AI Settings modal is a
+    model picker only.
 - [ ] **Phase 4 — data migration.** No script needed: on the primary device
   (which already holds the full log locally), sign in → `runSync` sees an empty
   backend, merges (local wins), and pushes everything up. Do one final GitHub
