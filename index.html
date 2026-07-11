@@ -2223,15 +2223,14 @@
       catch { try { detail = await resp.text(); } catch { detail = ''; } }
       throw new Error('AI ' + resp.status + ': ' + (detail || 'request failed').slice(0, 300));
     }
-    const data = await resp.json();
-    return (data.text || '').trim();
+    return await resp.json();   // { text, model, stop_reason }
   }
 
   async function callAnthropic(userText, systemText) {
     const body = { model: getAIConfig().model, max_tokens: 1500,
       messages: [{ role: 'user', content: userText }] };
     if (systemText) body.system = systemText;
-    return aiRelay(body);
+    return ((await aiRelay(body)).text || '').trim();
   }
 
   // ---------- Per-entry analysis ----------
@@ -2382,7 +2381,9 @@
     ].join('\n');
 
     const title = 'Full log \u2014 ' + todayISO();
-    startConversation(userMsg, title, 'log');
+    // Whole-log analysis returns a long, multi-section breakdown - give it real
+    // output room (the default 1500 was too small and could come back empty).
+    startConversation(userMsg, title, 'log', 4096);
   }
 
   // ---------- Analysis result modal ----------
@@ -2453,7 +2454,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.13.1";
+  const APP_VERSION = "1.14.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2628,19 +2629,20 @@
   let activeConvo = null;
 
   // Multi-turn API call -- sends the full message array.
-  async function callAnthropicChat(messages, systemText) {
-    const body = { model: getAIConfig().model, max_tokens: 1500,
+  async function callAnthropicChat(messages, systemText, maxTokens) {
+    const body = { model: getAIConfig().model, max_tokens: maxTokens || 1500,
       messages: messages.map(function(m) { return { role: m.role, content: m.content }; }) };
     if (systemText) body.system = systemText;
-    return aiRelay(body);
+    return aiRelay(body);   // full { text, model, stop_reason }
   }
 
-  function startConversation(prompt, title, source) {
+  function startConversation(prompt, title, source, maxTokens) {
     activeConvo = {
       id: makeId(),
       title: title || 'Analysis',
       source: source || '',
       messages: [{ role: 'user', content: prompt }],
+      maxTokens: maxTokens || 1500,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deleted: false,
@@ -2654,10 +2656,19 @@
   async function runConvoTurn() {
     renderConversation(true);
     try {
-      const reply = await callAnthropicChat(activeConvo.messages, COACH_SYSTEM);
+      const res = await callAnthropicChat(activeConvo.messages, COACH_SYSTEM, activeConvo.maxTokens);
+      const reply = (res && res.text || '').trim();
+      if (!reply) {
+        // Succeeded but the model returned no text - surface WHY instead of a blank bubble.
+        const why = (res && res.stop_reason) || 'unknown';
+        logDiag('AI empty reply; stop_reason=' + why);
+        renderConversation(false, 'The model returned no text (reason: ' + why +
+          '). If this was Analyze all with a long log, try again — it now has more room.');
+        return;
+      }
       activeConvo.messages.push({ role: 'assistant', content: reply });
       activeConvo.updatedAt = new Date().toISOString();
-      logDiag('AI conversation turn ok');
+      logDiag('AI conversation turn ok (stop=' + ((res && res.stop_reason) || '?') + ')');
       if (activeConvo.saved) persistAnalyses();
       renderConversation(false);
     } catch (err) {
@@ -3283,7 +3294,7 @@
       ] }]
     };
     if (systemText) body.system = systemText;
-    return aiRelay(body);
+    return ((await aiRelay(body)).text || '').trim();
   }
 
   const SCAN_SYSTEM =
