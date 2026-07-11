@@ -1666,11 +1666,10 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  // ---------- sync (GitHub Contents API: pull-merge-push with sha) ----------
   // ============================================================
-  // ACCOUNT / AUTH (Supabase email + password). Additive: the app still
-  // runs on GitHub sync. This lets us sign in and confirm the new backend
-  // accepts us before switching sync over in a later step.
+  // ACCOUNT / AUTH (Supabase email + password). This is the PRIMARY sync
+  // path: signing in drives cloud sync via the backend collections API.
+  // The old GitHub data.json path survives only as a one-time importer.
   // ============================================================
   function getAuth() { try { return JSON.parse(localStorage.getItem(KEY_AUTH) || 'null'); } catch (e) { return null; } }
   function setAuth(a) { localStorage.setItem(KEY_AUTH, JSON.stringify(a)); }
@@ -2454,7 +2453,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.13.0";
+  const APP_VERSION = "1.13.1";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2818,7 +2817,7 @@
   // course layout by scanning a scorecard (blank or any card; we read the
   // PRINTED layout -- par / stroke index / yardage -- and ignore handwriting).
   //
-  // Data lives in state.courses and rides the same localStorage + GitHub sync
+  // Data lives in state.courses and rides the same localStorage + backend sync
   // and the same mergeById engine as entries and analyses, so nothing new is
   // needed for persistence.
   // ============================================================
@@ -3995,8 +3994,8 @@
     </div>
     <div class="modal-body">
       <p class="modal-help">
-        Sign in to LinksCaptain to sync your log to the cloud backend. This is
-        being added alongside the existing GitHub sync while we switch over.
+        Sign in to sync your golf log across devices and use AI. Everything is stored
+        under your account — no tokens or API keys to set up.
       </p>
       <div id="account-form">
         <label>Email</label>
@@ -4025,19 +4024,18 @@
 <div class="modal-overlay" id="sync-modal" onclick="closeOnBackdrop(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <h3>Sync Settings</h3>
+      <h3>Import old data</h3>
       <button class="modal-close" onclick="closeSyncSettings()">&times;</button>
     </div>
     <div class="modal-body">
       <p class="modal-help">
-        Sync your log across devices using a private GitHub repo and a fine-grained
-        Personal Access Token. The token lives only in this browser — never
-        committed, never uploaded with the app.
+        <strong>One-time import.</strong> If your history is still in the old GitHub
+        <code>data.json</code> sync, pull it in here — it loads onto this device and then
+        syncs up to your account. Once your data is in the cloud you won't need this again.
       </p>
       <p class="modal-help">
-        <strong>One-time setup:</strong> create a private repo on GitHub (for example
-        <code>golf-data</code>), then create a fine-grained PAT scoped to only that
-        repo with <strong>Contents: Read and write</strong>. Paste the values below.
+        Enter the repo and a fine-grained Personal Access Token for it
+        (<strong>Contents: Read</strong> is enough). The token stays only in this browser.
       </p>
 
       <label>Repo (owner/name)</label>
@@ -4052,10 +4050,10 @@
       <p class="modal-help" id="sync-status-detail"></p>
     </div>
     <div class="modal-footer">
-      <button class="btn-danger" onclick="disconnectSync()">Disconnect</button>
+      <button class="btn-danger" onclick="disconnectSync()">Clear</button>
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeSyncSettings()">Cancel</button>
-        <button class="btn-primary" onclick="saveSyncSettings()">Save &amp; sync</button>
+        <button class="btn-primary" onclick="saveSyncSettings()">Import</button>
       </div>
     </div>
   </div>
