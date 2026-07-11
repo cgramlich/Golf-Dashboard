@@ -138,6 +138,14 @@
     background: var(--surface); color: var(--ink-soft); cursor: pointer;
   }
   .ask-chip:active { transform: scale(0.99); }
+  /* Organize-notes review cards */
+  .org-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: var(--surface); }
+  .org-include-row { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--ink-soft); margin-bottom: 8px; }
+  .org-include-row input { width: auto; }
+  .org-row { display: flex; gap: 8px; }
+  .org-card input, .org-card select, .org-card textarea { width: 100%; margin-bottom: 8px; }
+  .org-card .org-type { flex: 0 0 auto; width: auto; }
+  .org-card .org-date { flex: 1 1 auto; }
   .coach-tile .ct-ic { font-size: 1.5rem; }
   .coach-tile .ct-title { font-weight: 700; font-size: 0.92rem; }
   .coach-tile .ct-sub { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.35; }
@@ -856,6 +864,7 @@
 
     <div class="log-actions">
       <button class="btn-primary" onclick="openEntryForm()">+ New entry</button>
+      <button class="btn-secondary" onclick="openOrganize()">Organize notes</button>
       <button class="btn-secondary" onclick="exportLog()">Export</button>
       <button class="btn-secondary" onclick="analyzeLog()">Analyze all</button>
       <button class="btn-secondary" onclick="openAsk()">Ask your log</button>
@@ -1413,7 +1422,7 @@
     const entries = Array.isArray(raw.entries) ? raw.entries.map(e => ({
       id:         e.id || makeId(),
       type:       validTypes[e.type] ? e.type : 'thought',
-      date:       e.date || todayISO(),
+      date:       (typeof e.date === 'string') ? e.date : todayISO(),
       title:      typeof e.title === 'string' ? e.title : '',
       body:       typeof e.body === 'string' ? e.body : '',
       instructor: typeof e.instructor === 'string' ? e.instructor : '',
@@ -2120,6 +2129,7 @@
     if (ev.target && ev.target.classList && ev.target.classList.contains('modal-overlay')) {
       const id = ev.currentTarget.id;
       if (id === 'entry-modal') closeEntryForm();
+      else if (id === 'organize-modal') closeOrganize();
       else if (id === 'ask-modal') closeAsk();
       else if (id === 'sync-modal') closeSyncSettings();
       else if (id === 'course-modal') closeCourseForm();
@@ -2413,6 +2423,152 @@
     askLog(q);
   }
 
+  // ============================================================
+  // ORGANIZE NOTES: paste freeform notes -> AI parses into typed entries ->
+  // review + edit -> save into the log. One entry per session / instructor block.
+  // ============================================================
+  const ORGANIZE_SYSTEM =
+    'You organize a golfer\'s pasted notes into clean, structured log entries. ' +
+    'Return ONLY a JSON array (no prose, no markdown, no code fences). ' +
+    'Make ONE entry per distinct session or instructor block. Each array item is an object: ' +
+    '{"type":"lesson"|"range"|"thought","date":string,"instructor":string,"location":string,"title":string,"body":string}. ' +
+    'RULES: ' +
+    '- type: "lesson" for instructor/lesson notes, "range" for practice/range-session notes, "thought" for a standalone cue or idea with no lesson context. ' +
+    '- date: use a date ONLY if it is explicitly stated. Full date -> "YYYY-MM-DD"; month+year only -> "YYYY-MM"; year only -> "YYYY". If no date is stated (e.g. "[fill in]", "accumulated", "dates not recorded"), use "". NEVER invent or guess a date. ' +
+    '- instructor: the coach\'s name if given, else "". location: place if given, else "". ' +
+    '- title: a short, specific title (a few words). ' +
+    '- body: reorganize the notes cleanly and FAITHFULLY. Preserve all cues and the golfer\'s wording; do not invent, add, or drop content. Group into labeled sections where it helps (e.g. Setup, Takeaway/Backswing, Load, Through). Put named DRILLS under a "Drills:" section and standalone swing thoughts under a "Swing thoughts:" section. Use simple hyphen bullets. ' +
+    'Output the JSON array and nothing else.';
+
+  let organizeDrafts = [];
+  const ORG_TYPES = { lesson: 1, range: 1, thought: 1 };
+
+  // Defensive parse: models sometimes wrap the array in fences or a stray word.
+  function extractJsonArray(text) {
+    let t = (text || '').trim();
+    t = t.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    const start = t.indexOf('[');
+    const end = t.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) throw new Error('No JSON array found in the reply.');
+    return JSON.parse(t.slice(start, end + 1));
+  }
+
+  function sanitizeDraft(d) {
+    if (!d || typeof d !== 'object') return null;
+    const type = ORG_TYPES[d.type] ? d.type : 'lesson';
+    const date = (typeof d.date === 'string') ? d.date.trim() : '';
+    const instructor = (typeof d.instructor === 'string') ? d.instructor.trim() : '';
+    let body = (typeof d.body === 'string') ? d.body.trim() : '';
+    const loc = (typeof d.location === 'string') ? d.location.trim() : '';
+    if (loc && body.indexOf(loc) === -1) body = 'Location: ' + loc + '\n\n' + body;
+    const title = (typeof d.title === 'string') ? d.title.trim() : '';
+    if (!title && !body) return null;
+    return { type, date, instructor, title, body };
+  }
+
+  function openOrganize() {
+    if (!aiReady()) { alert('Sign in to use AI — tap Account in Settings.'); return; }
+    organizeDrafts = [];
+    document.getElementById('organize-input').value = '';
+    document.getElementById('organize-review').innerHTML = '';
+    showOrganizePhase('paste');
+    setOrganizeStatus('');
+    document.getElementById('organize-modal').classList.add('visible');
+    setTimeout(function() { const ta = document.getElementById('organize-input'); if (ta) ta.focus(); }, 50);
+  }
+  function closeOrganize() {
+    document.getElementById('organize-modal').classList.remove('visible');
+  }
+  function showOrganizePhase(phase) {
+    document.getElementById('organize-paste').style.display = (phase === 'paste') ? 'block' : 'none';
+    document.getElementById('organize-review').style.display = (phase === 'review') ? 'block' : 'none';
+    document.getElementById('organize-foot-paste').style.display = (phase === 'paste') ? 'flex' : 'none';
+    document.getElementById('organize-foot-review').style.display = (phase === 'review') ? 'flex' : 'none';
+    setOrganizeStatus('');
+  }
+  function setOrganizeStatus(msg, isErr) {
+    const el = document.getElementById('organize-status');
+    if (el) { el.textContent = msg || ''; el.style.color = isErr ? 'var(--error-red)' : ''; }
+  }
+
+  async function runOrganize() {
+    const text = document.getElementById('organize-input').value.trim();
+    if (!text) { setOrganizeStatus('Paste some notes first.', true); return; }
+    const btn = document.getElementById('organize-go-btn');
+    if (btn) btn.disabled = true;
+    setOrganizeStatus('Organizing…');
+    try {
+      const userMsg = 'Today is ' + todayISO() + '.\n\nOrganize these golf notes:\n\n' + text;
+      const res = await aiRelay({ model: getAIConfig().model, max_tokens: 4096,
+        system: ORGANIZE_SYSTEM, messages: [{ role: 'user', content: userMsg }] });
+      const arr = extractJsonArray(res.text || '');
+      organizeDrafts = (Array.isArray(arr) ? arr : []).map(sanitizeDraft).filter(Boolean);
+      if (organizeDrafts.length === 0) {
+        setOrganizeStatus('Could not pull any entries out of that. Try again, or trim the text.', true);
+        return;
+      }
+      renderOrganizeReview();
+      showOrganizePhase('review');
+    } catch (e) {
+      setOrganizeStatus('Organize failed: ' + (e.message || e), true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function renderOrganizeReview() {
+    const c = document.getElementById('organize-review');
+    const opt = function(v, sel) {
+      return '<option value="' + v + '"' + (sel === v ? ' selected' : '') + '>'
+           + v.charAt(0).toUpperCase() + v.slice(1) + '</option>';
+    };
+    const n = organizeDrafts.length;
+    let html = '<p class="modal-help">' + n + ' entr' + (n === 1 ? 'y' : 'ies')
+      + ' found. Edit anything, untick to skip, then Save. A blank date means undated.</p>';
+    organizeDrafts.forEach(function(d, i) {
+      html += '<div class="org-card" data-i="' + i + '">'
+        + '<label class="org-include-row"><input type="checkbox" class="org-include" checked> Include this entry</label>'
+        + '<div class="org-row">'
+        +   '<select class="org-type">' + opt('lesson', d.type) + opt('range', d.type) + opt('thought', d.type) + '</select>'
+        +   '<input class="org-date" placeholder="YYYY-MM-DD (blank = undated)" value="' + escapeHtml(d.date) + '">'
+        + '</div>'
+        + '<input class="org-instructor" placeholder="Instructor (lessons)" value="' + escapeHtml(d.instructor) + '">'
+        + '<input class="org-title" placeholder="Title" value="' + escapeHtml(d.title) + '">'
+        + '<textarea class="org-body" rows="6">' + escapeHtml(d.body) + '</textarea>'
+        + '</div>';
+    });
+    c.innerHTML = html;
+    document.getElementById('organize-save-btn').textContent = 'Save ' + n + ' entr' + (n === 1 ? 'y' : 'ies');
+  }
+
+  function saveOrganized() {
+    const cards = document.querySelectorAll('#organize-review .org-card');
+    const now = new Date().toISOString();
+    let added = 0;
+    cards.forEach(function(card) {
+      if (!card.querySelector('.org-include').checked) return;
+      const type = card.querySelector('.org-type').value;
+      const date = card.querySelector('.org-date').value.trim();
+      const title = card.querySelector('.org-title').value.trim();
+      const body = card.querySelector('.org-body').value.trim();
+      const instructor = card.querySelector('.org-instructor').value.trim();
+      if (!title && !body) return;
+      state.entries.push({
+        id: makeId(), type: (ORG_TYPES[type] ? type : 'lesson'),
+        date: date, title: title, body: body,
+        instructor: (type === 'lesson') ? instructor : '',
+        createdAt: now, updatedAt: now, deleted: false
+      });
+      added++;
+    });
+    if (added === 0) { setOrganizeStatus('Nothing ticked to save.', true); return; }
+    saveLocal();
+    renderEntries();
+    scheduleSync();
+    closeOrganize();
+    alert('Added ' + added + ' entr' + (added === 1 ? 'y' : 'ies') + ' to your log.');
+  }
+
   async function analyzeLog() {
     if (!aiReady()) {
       alert('Sign in to use AI — tap Account in Settings.');
@@ -2515,7 +2671,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.15.0";
+  const APP_VERSION = "1.16.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -4161,6 +4317,37 @@
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeAISettings()">Cancel</button>
         <button class="btn-primary" onclick="saveAISettings()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="organize-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Organize notes</h3>
+      <button class="modal-close" onclick="closeOrganize()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="organize-paste">
+        <p class="modal-help">
+          Paste any golf notes — lesson write-ups, range thoughts, a wall of cues.
+          It sorts them into entries (one per session), pulls out the instructor,
+          date, and title, and organizes the body. You review everything before it saves.
+        </p>
+        <textarea id="organize-input" rows="10" placeholder="Paste your notes here…"></textarea>
+      </div>
+      <div id="organize-review" style="display:none"></div>
+      <p class="modal-help" id="organize-status"></p>
+    </div>
+    <div class="modal-footer">
+      <div id="organize-foot-paste" class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeOrganize()">Cancel</button>
+        <button class="btn-primary" id="organize-go-btn" onclick="runOrganize()">Organize</button>
+      </div>
+      <div id="organize-foot-review" class="modal-footer-right" style="display:none">
+        <button class="btn-secondary" onclick="showOrganizePhase('paste')">Back</button>
+        <button class="btn-primary" id="organize-save-btn" onclick="saveOrganized()">Save entries</button>
       </div>
     </div>
   </div>
