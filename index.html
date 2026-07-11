@@ -130,6 +130,14 @@
     display: flex; flex-direction: column; gap: 6px; transition: transform 0.1s;
   }
   .coach-tile:active { transform: scale(0.98); }
+  /* Ask-your-log example chips */
+  .ask-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .ask-chip {
+    text-align: left; font-size: 0.8rem; line-height: 1.3;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); color: var(--ink-soft); cursor: pointer;
+  }
+  .ask-chip:active { transform: scale(0.99); }
   .coach-tile .ct-ic { font-size: 1.5rem; }
   .coach-tile .ct-title { font-weight: 700; font-size: 0.92rem; }
   .coach-tile .ct-sub { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.35; }
@@ -826,6 +834,7 @@
   <div id="coach" class="section">
     <div class="section-label">Coach</div>
     <div class="coach-grid">
+      <button class="coach-tile" onclick="openAsk()"><span class="ct-ic">💬</span><span class="ct-title">Ask your log</span><span class="ct-sub">Question your lessons & sessions</span></button>
       <button class="coach-tile" onclick="showSection('setup')"><span class="ct-ic">🎯</span><span class="ct-title">Setup</span><span class="ct-sub">Grip, stance & alignment</span></button>
       <button class="coach-tile" onclick="showSection('swingthoughts')"><span class="ct-ic">💭</span><span class="ct-title">Swing Thoughts</span><span class="ct-sub">Focus cues that work</span></button>
       <button class="coach-tile" onclick="showSection('backswing')"><span class="ct-ic">🔙</span><span class="ct-title">Backswing</span><span class="ct-sub">Takeaway to the top</span></button>
@@ -849,6 +858,7 @@
       <button class="btn-primary" onclick="openEntryForm()">+ New entry</button>
       <button class="btn-secondary" onclick="exportLog()">Export</button>
       <button class="btn-secondary" onclick="analyzeLog()">Analyze all</button>
+      <button class="btn-secondary" onclick="openAsk()">Ask your log</button>
     </div>
 
     <input type="text" class="search-box" id="log-search" placeholder="Search your log..." oninput="renderEntries()">
@@ -2110,6 +2120,7 @@
     if (ev.target && ev.target.classList && ev.target.classList.contains('modal-overlay')) {
       const id = ev.currentTarget.id;
       if (id === 'entry-modal') closeEntryForm();
+      else if (id === 'ask-modal') closeAsk();
       else if (id === 'sync-modal') closeSyncSettings();
       else if (id === 'course-modal') closeCourseForm();
       else if (id === 'scan-modal') closeScan();
@@ -2244,6 +2255,10 @@
   // prescribes real named drills plus simple swing thoughts, not just notes.
   const COACH_SYSTEM = 'You are a serious golf coach helping a dedicated amateur improve. Direct, specific, honest. Fundamentals over fashion. When you spot a fault, prescribe real, named drills with exactly how to do them and what to feel, plus one or two simple swing thoughts. No cliches, no filler. Keep it tight.';
 
+  // System voice for "Ask your log": the model is handed the full log + a plain-
+  // English request and must honor the user's own filters (types, dates, counts).
+  const ASK_SYSTEM = 'You are a serious golf coach. You are given the user\'s full golf log (each entry dated and tagged Lesson / Range session / Thought) followed by a request. Answer ONLY from the log. Honor exactly what they ask for: the entry TYPES they name (e.g. lessons, range sessions), any DATE range (e.g. "after April"), and any COUNT or recency (e.g. "my last two"). Use the provided current date to resolve relative dates like "this year" or "last month". If nothing in the log matches the request, say so plainly rather than inventing. Unless the user asks for a different format, reply with: a one or two sentence summary of what you looked at and the through-line, then bullet-point swing thoughts, then named drills with how to do them and what to feel. Direct, specific, honest. No cliches, no filler.';
+
   async function analyzeEntryFromForm() {
     if (!aiReady()) {
       alert('Sign in to use AI — tap Account in Settings.');
@@ -2338,6 +2353,66 @@
   }
 
   // ---------- Whole-log analysis ----------
+  // The whole log as dated, typed text the model can filter on. Oldest first so
+  // it reads as a timeline. Shared by "Analyze all" and "Ask your log".
+  function buildLogText() {
+    const entries = state.entries.filter(e => !e.deleted);
+    const sorted = entries.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
+    return sorted.map(function(e) {
+      const head = e.date + ' — ' + (typeLabels[e.type] || 'Entry')
+                 + (e.title ? ': ' + e.title : '');
+      const meta = (e.type === 'lesson' && e.instructor)
+        ? '\n(Instructor: ' + e.instructor + ')'
+        : '';
+      return head + meta + '\n' + (e.body || '(no notes)');
+    }).join('\n\n---\n\n');
+  }
+
+  // "Ask your log": a plain-English question answered against the whole log,
+  // with the model honoring any type / date / count filters the user names.
+  async function askLog(query) {
+    if (!aiReady()) { alert('Sign in to use AI — tap Account in Settings.'); return; }
+    query = (query || '').trim();
+    if (!query) return;
+    const logText = buildLogText();
+    if (!logText) { alert('No entries to ask about yet. Add a lesson, range session, or thought first.'); return; }
+    const userMsg = [
+      'Today is ' + todayISO() + '.',
+      '',
+      'Here is my full golf log, oldest to newest:',
+      '',
+      logText,
+      '',
+      'My request: ' + query
+    ].join('\n');
+    const shortQ = query.length > 40 ? query.slice(0, 40) + '…' : query;
+    startConversation(userMsg, 'Ask — ' + shortQ, 'ask', 4096, ASK_SYSTEM);
+  }
+
+  // Ask modal (opened from the Log screen and the Coach hub).
+  function openAsk() {
+    if (!aiReady()) { alert('Sign in to use AI — tap Account in Settings.'); return; }
+    const ta = document.getElementById('ask-input');
+    if (ta) ta.value = '';
+    document.getElementById('ask-modal').classList.add('visible');
+    if (ta) setTimeout(function() { ta.focus(); }, 50);
+  }
+  function closeAsk() {
+    document.getElementById('ask-modal').classList.remove('visible');
+  }
+  function fillAsk(btn) {
+    const ta = document.getElementById('ask-input');
+    if (ta) { ta.value = btn.textContent; ta.focus(); }
+  }
+  function submitAsk() {
+    const ta = document.getElementById('ask-input');
+    const q = ta ? ta.value.trim() : '';
+    if (!q) { if (ta) ta.focus(); return; }
+    closeAsk();
+    askLog(q);
+  }
+
   async function analyzeLog() {
     if (!aiReady()) {
       alert('Sign in to use AI — tap Account in Settings.');
@@ -2349,24 +2424,10 @@
       return;
     }
 
-    // Oldest first so the model reads a chronological timeline and can spot
-    // progression / regression patterns naturally.
-    const sorted = entries.slice().sort((a, b) =>
-      (a.date || '').localeCompare(b.date || '')
-    );
-    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
-
-    const logText = sorted.map(function(e) {
-      const head = e.date + ' \u2014 ' + (typeLabels[e.type] || 'Entry')
-                 + (e.title ? ': ' + e.title : '');
-      const meta = (e.type === 'lesson' && e.instructor)
-        ? '\n(Instructor: ' + e.instructor + ')'
-        : '';
-      return head + meta + '\n' + (e.body || '(no notes)');
-    }).join('\n\n---\n\n');
+    const logText = buildLogText();
 
     const userMsg = [
-      'Here is my complete golf log, ' + sorted.length + ' entries, ordered oldest to newest:',
+      'Here is my complete golf log, ' + entries.length + ' entries, ordered oldest to newest:',
       '',
       logText,
       '',
@@ -2454,7 +2515,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.14.0";
+  const APP_VERSION = "1.15.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2636,11 +2697,12 @@
     return aiRelay(body);   // full { text, model, stop_reason }
   }
 
-  function startConversation(prompt, title, source, maxTokens) {
+  function startConversation(prompt, title, source, maxTokens, system) {
     activeConvo = {
       id: makeId(),
       title: title || 'Analysis',
       source: source || '',
+      system: system || COACH_SYSTEM,
       messages: [{ role: 'user', content: prompt }],
       maxTokens: maxTokens || 1500,
       createdAt: new Date().toISOString(),
@@ -2656,7 +2718,7 @@
   async function runConvoTurn() {
     renderConversation(true);
     try {
-      const res = await callAnthropicChat(activeConvo.messages, COACH_SYSTEM, activeConvo.maxTokens);
+      const res = await callAnthropicChat(activeConvo.messages, activeConvo.system || COACH_SYSTEM, activeConvo.maxTokens);
       const reply = (res && res.text || '').trim();
       if (!reply) {
         // Succeeded but the model returned no text - surface WHY instead of a blank bubble.
@@ -4099,6 +4161,33 @@
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeAISettings()">Cancel</button>
         <button class="btn-primary" onclick="saveAISettings()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ask-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Ask your log</h3>
+      <button class="modal-close" onclick="closeAsk()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-help">
+        Ask about your log in plain English — point it at any slice: entry types,
+        dates, or just the last few. Names its drills and swing thoughts.
+      </p>
+      <textarea id="ask-input" rows="3" placeholder="e.g. My last two lessons and any range sessions after April — bullet swing thoughts and drills"></textarea>
+      <div class="ask-chips">
+        <button type="button" class="ask-chip" onclick="fillAsk(this)">My last two lessons — swing thoughts and drills</button>
+        <button type="button" class="ask-chip" onclick="fillAsk(this)">Lessons and range sessions after April — what keeps coming up?</button>
+        <button type="button" class="ask-chip" onclick="fillAsk(this)">What has my coach said about my grip?</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeAsk()">Cancel</button>
+        <button class="btn-primary" onclick="submitAsk()">Ask</button>
       </div>
     </div>
   </div>
