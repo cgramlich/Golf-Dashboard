@@ -705,6 +705,14 @@
     line-height: 1.5;
     padding: 2px 0;
   }
+  /* Subtle centered "LinksCaptain vX.Y.Z" footer (Settings + account modal). */
+  .version-foot {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    opacity: 0.6;
+    margin: 4px 0 10px;
+  }
   .diagnostics {
     margin-top: 6px;
     border-top: 1px solid rgba(0,0,0,0.07);
@@ -1330,8 +1338,7 @@
 
     <p class="section-label">About</p>
     <div class="settings-card">
-      <div class="settings-stat"><span>Version</span><span id="set-version">&mdash;</span></div>
-      <button class="settings-fullbtn" onclick="checkForUpdates(true)">Check for updates</button>
+      <button class="settings-fullbtn" id="set-update-btn" onclick="updateBtnTap()">Check for updates</button>
       <div class="settings-update-note" id="set-update-note"></div>
       <button class="settings-link" onclick="toggleDiagnostics()">Diagnostics</button>
       <div class="diagnostics" id="diagnostics" style="display:none">
@@ -1342,6 +1349,7 @@
         <pre class="diag-log" id="diag-log"></pre>
       </div>
     </div>
+    <p class="version-foot" id="settings-version-foot"></p>
   </div>
 
 </div>
@@ -2695,13 +2703,28 @@
   document.addEventListener('DOMContentLoaded', updateAccountStatus);
 
   // ============================================================
-  // SELF-UPDATE
+  // SELF-UPDATE (portfolio standard, vanilla)
   // WHY: a single-file PWA on GitHub Pages otherwise needs a manual ?v=N
-  // cache-buster on every deploy. Instead we embed a version, fetch the live
-  // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
-  // user-facing change and the app notifies itself.
+  // cache-buster on every deploy. Instead we embed a version + build stamp,
+  // fetch the live file, compare, and offer a one-tap refresh.
   // ============================================================
-  const APP_VERSION = "1.17.0";
+  // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
+  // the update prompts, and the footers - a real version, not a build date. Bump it on
+  // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
+  const APP_VERSION = "1.17.1";
+  // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
+  // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
+  // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
+  const BUILD = "2026-07-23.1";
+  // Compare two build stamps of the form "YYYY-MM-DD.N". A plain string compare is wrong
+  // (the counter isn't zero-padded, so ".11" < ".9" lexically); split on - and . into
+  // numeric fields and compare left to right. True iff `a` is strictly newer than `b`.
+  function buildIsNewer(a, b) {
+    const parse = s => String(s || "").split(/[-.]/).map(n => parseInt(n, 10) || 0);
+    const pa = parse(a), pb = parse(b), len = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x > y) return true; if (x < y) return false; }
+    return false;
+  }
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -2709,52 +2732,105 @@
     return location.origin + location.pathname;
   }
 
+  let pendingUpdate = null;   // { ver, build } of a newer deployed build, else null
+  let updNoteTimer = null;
+
+  // Show a status line for a few seconds then clear it (used for terminal results).
+  function flashUpdateNote(msg) {
+    setUpdateNote(msg);
+    if (updNoteTimer) clearTimeout(updNoteTimer);
+    updNoteTimer = setTimeout(() => setUpdateNote(''), 4000);
+  }
+
+  // manual=true is the Settings button: show inline "Checking..." then a result. On
+  // launch/resume we check quietly and only surface the banner if there's an update.
+  // Detection compares the deployed BUILD (monotonic date stamp) so it never misfires;
+  // the deployed APP_VERSION is read alongside it purely to LABEL the update ("v1.17.1").
   async function checkForUpdates(manual) {
+    if (manual) { if (updNoteTimer) clearTimeout(updNoteTimer); setUpdateNote('Checking...'); }
     try {
-      logDiag('update check started (running ' + APP_VERSION + ')');
       // no-store + a timestamp query defeats GitHub's CDN cache so we read the
       // freshly deployed file, not a stale cached copy.
       const url = getAppBaseUrl() + '?_=' + Date.now();
       const resp = await fetch(url, { cache: 'no-store' });
-      if (!resp.ok) throw new Error('fetch ' + resp.status);
+      if (!resp.ok) {
+        logDiag('update check http ' + resp.status);
+        if (manual) flashUpdateNote("Couldn't check - are you online?");
+        return;
+      }
       const text = await resp.text();
-      const m = text.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-      if (!m) throw new Error('version marker not found in remote file');
-      const remote = m[1];
-      logDiag('update check: remote is ' + remote);
-      if (remote !== APP_VERSION) {
-        showUpdateBanner(remote);
-        if (manual) setUpdateNote('Update available: ' + remote + '. Tap the gold banner at the top to refresh.');
-      } else if (manual) {
-        setUpdateNote('You are on the latest version (' + APP_VERSION + ').');
+      const mb = text.match(/const BUILD = "([^"]+)";/);       const rBuild = mb && mb[1];
+      const mv = text.match(/const APP_VERSION = "([^"]+)";/); const rVer = mv && mv[1];
+      if (rBuild && buildIsNewer(rBuild, BUILD)) {
+        logDiag('update check: newer build live: ' + rBuild + ' (v' + (rVer || '?') + ')');
+        pendingUpdate = { ver: rVer, build: rBuild };
+        showUpdateBanner(pendingUpdate);
+        renderUpdateRow();
+        if (manual) setUpdateNote('');
+      } else {
+        logDiag('update check: up to date (v' + APP_VERSION + ', ' + BUILD + ')');
+        pendingUpdate = null;
+        hideUpdateBanner();
+        renderUpdateRow();
+        if (manual) flashUpdateNote("You're on the latest (v" + APP_VERSION + ")");
       }
     } catch (err) {
       logDiag('update check failed: ' + (err.message || err));
-      if (manual) setUpdateNote('Update check failed: ' + (err.message || err) + '. GitHub can take a few minutes to publish a new deploy; try again shortly.');
+      if (manual) flashUpdateNote('Update check failed');
     }
   }
 
-  function showUpdateBanner(remoteVersion) {
+  // Check on launch AND on resume AND on a periodic timer - installed PWAs are usually
+  // RESUMED from the background, not cold-launched, so a launch-only check means the
+  // banner rarely surfaces on its own. Debounced so a burst of resumes only refetches once.
+  (function scheduleUpdateChecks() {
+    let last = 0; const GAP = 60 * 1000;
+    function maybe() { const now = Date.now(); if (now - last < GAP) return; last = now; checkForUpdates(false); }
+    document.addEventListener('DOMContentLoaded', () => setTimeout(maybe, 1200));  // initial launch check
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') maybe(); });
+    setInterval(maybe, 20 * 60 * 1000);                                            // periodic while open
+  })();
+
+  function showUpdateBanner(upd) {
     const b = document.getElementById('update-banner');
     document.getElementById('update-banner-text').textContent =
-      'Update available (' + remoteVersion + ') \u2014 tap to refresh';
+      'Update available (v' + (upd.ver || upd.build) + ') \u2014 tap to refresh';
     b.classList.add('visible');
   }
 
+  function hideUpdateBanner() {
+    const b = document.getElementById('update-banner');
+    if (b) b.classList.remove('visible');
+  }
+
+  // Apply by navigating to a build-stamped URL so iOS can't serve the cached HTML.
+  // Wipe the SW caches first so the new build can never be masked by a cached shell.
   function applyUpdate() {
-    // Tell the service worker to drop its caches first, so the reload can't be
-    // answered from a stale shell, then hard-navigate with a fresh timestamp.
+    const stamp = (pendingUpdate && pendingUpdate.build) || String(Date.now());
     try {
       if (navigator.serviceWorker && navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({ type: 'clearCache' });
       }
     } catch (e) { /* non-fatal */ }
-    location.href = getAppBaseUrl() + '?u=' + Date.now();
+    location.replace(getAppBaseUrl() + '?u=' + encodeURIComponent(stamp));
   }
 
   function setUpdateNote(msg) {
     const el = document.getElementById('set-update-note');
     if (el) el.textContent = msg;
+  }
+
+  // The Settings button doubles as the apply control: when an update is pending it
+  // swaps to "Update to vX" (matching the standard), otherwise "Check for updates".
+  function updateBtnTap() {
+    if (pendingUpdate) applyUpdate(); else checkForUpdates(true);
+  }
+
+  function renderUpdateRow() {
+    const b = document.getElementById('set-update-btn');
+    if (b) b.textContent = pendingUpdate
+      ? 'Update to v' + (pendingUpdate.ver || pendingUpdate.build)
+      : 'Check for updates';
   }
 
   // ============================================================
@@ -2805,8 +2881,13 @@
   // state. Called when the tab opens, on load, and after any status change.
   // ============================================================
   function renderSettings() {
-    const v = document.getElementById('set-version');
-    if (v) v.textContent = APP_VERSION;
+    // Version footers (Settings + account modal) and the update button label.
+    const label = 'LinksCaptain v' + APP_VERSION;
+    const f1 = document.getElementById('settings-version-foot');
+    if (f1) f1.textContent = label;
+    const f2 = document.getElementById('account-version-foot');
+    if (f2) f2.textContent = label;
+    renderUpdateRow();
 
     const syncSub = document.getElementById('set-sync-sub');
     if (syncSub) {
@@ -2860,11 +2941,9 @@
     };
   })();
 
-  // On load: paint the Settings tab and quietly check for a newer version.
-  document.addEventListener('DOMContentLoaded', () => {
-    renderSettings();
-    checkForUpdates(false);
-  });
+  // On load: paint the Settings tab. (The quiet launch update check is handled
+  // by scheduleUpdateChecks above - launch + resume + interval, debounced.)
+  document.addEventListener('DOMContentLoaded', renderSettings);
 
   // ============================================================
   // SAVED ANALYSES + FOLLOW-UP CONVERSATIONS
@@ -4284,6 +4363,7 @@
         <button class="btn-primary" onclick="testBackend()">Test backend</button>
       </div>
     </div>
+    <p class="version-foot" id="account-version-foot"></p>
   </div>
 </div>
 
