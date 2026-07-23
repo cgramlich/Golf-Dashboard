@@ -493,6 +493,19 @@
     min-height: 140px;
     line-height: 1.5;
   }
+  /* Password reveal eyeball (PORTABLE-IMPROVEMENTS 2026-07-10) */
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 44px; }
+  .pw-eye {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: none; padding: 0; margin: 0;
+    cursor: pointer; border-radius: 50%;
+    color: rgba(45,90,39,0.55);
+  }
+  .pw-eye:active { color: var(--green); }
+  .pw-eye svg { width: 19px; height: 19px; }
   .modal-help {
     font-size: 0.78rem;
     color: #555;
@@ -1690,6 +1703,20 @@
   // path: signing in drives cloud sync via the backend collections API.
   // The old GitHub data.json path survives only as a one-time importer.
   // ============================================================
+  // Password-reveal eyeball (PORTABLE-IMPROVEMENTS 2026-07-10). The button sits
+  // inside a .pw-wrap next to its input; toggling swaps the input type and the
+  // show/hide eye icons, and keeps the aria-label honest.
+  function togglePwReveal(btn) {
+    const input = btn.parentElement.querySelector('input');
+    if (!input) return;
+    const reveal = input.type === 'password';
+    input.type = reveal ? 'text' : 'password';
+    const noun = (btn.getAttribute('aria-label') || '').indexOf('token') !== -1 ? 'token' : 'password';
+    btn.setAttribute('aria-label', (reveal ? 'Hide ' : 'Show ') + noun);
+    btn.querySelector('.pw-eye-show').style.display = reveal ? 'none' : '';
+    btn.querySelector('.pw-eye-hide').style.display = reveal ? '' : 'none';
+  }
+
   function getAuth() { try { return JSON.parse(localStorage.getItem(KEY_AUTH) || 'null'); } catch (e) { return null; } }
   function setAuth(a) { localStorage.setItem(KEY_AUTH, JSON.stringify(a)); }
   function clearAuth() { localStorage.removeItem(KEY_AUTH); }
@@ -2671,7 +2698,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.16.1";
+  const APP_VERSION = "1.16.2";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -4230,7 +4257,13 @@
         <label>Email</label>
         <input type="text" inputmode="email" id="account-email" placeholder="you@example.com" autocapitalize="off" autocorrect="off">
         <label>Password</label>
-        <input type="password" id="account-password" placeholder="at least 6 characters" autocapitalize="off" autocorrect="off">
+        <div class="pw-wrap">
+          <input type="password" id="account-password" placeholder="at least 6 characters" autocapitalize="off" autocorrect="off" autocomplete="current-password">
+          <button type="button" class="pw-eye" onclick="togglePwReveal(this)" aria-label="Show password">
+            <svg class="pw-eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+            <svg class="pw-eye-hide" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+          </button>
+        </div>
       </div>
       <div id="account-signedin" style="display:none">
         <p class="modal-help">Signed in as <strong id="account-whoami"></strong>.</p>
@@ -4274,7 +4307,13 @@
       <input type="text" id="sync-path" value="data.json" autocapitalize="off" autocorrect="off">
 
       <label>Personal Access Token</label>
-      <input type="password" id="sync-token" placeholder="github_pat_..." autocapitalize="off" autocorrect="off">
+      <div class="pw-wrap">
+        <input type="password" id="sync-token" placeholder="github_pat_..." autocapitalize="off" autocorrect="off" autocomplete="off">
+        <button type="button" class="pw-eye" onclick="togglePwReveal(this)" aria-label="Show token">
+          <svg class="pw-eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+          <svg class="pw-eye-hide" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div>
 
       <p class="modal-help" id="sync-status-detail"></p>
     </div>
