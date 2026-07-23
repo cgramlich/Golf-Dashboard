@@ -387,6 +387,7 @@
   .entry-type-badge.type-lesson { background: rgba(45,90,39,0.15); color: var(--green); }
   .entry-type-badge.type-range { background: rgba(201,168,76,0.25); color: #8a6a1a; }
   .entry-type-badge.type-thought { background: rgba(36,113,163,0.15); color: var(--error-blue); }
+  .entry-type-badge.type-round { background: rgba(180,100,50,0.18); color: #9a5a28; }
   .entry-date { color: #777; }
   .entry-instructor { color: #555; font-style: italic; }
   .entry-title {
@@ -889,6 +890,7 @@
       <button class="filter-chip active" onclick="setFilter('all', this)">All</button>
       <button class="filter-chip" onclick="setFilter('lesson', this)">Lessons</button>
       <button class="filter-chip" onclick="setFilter('range', this)">Range</button>
+      <button class="filter-chip" onclick="setFilter('round', this)">Rounds</button>
       <button class="filter-chip" onclick="setFilter('thought', this)">Thoughts</button>
     </div>
 
@@ -1431,7 +1433,7 @@
   // schema evolves. Every entry gets full fields with safe defaults.
   function normalizeState(raw) {
     if (!raw || typeof raw !== 'object') return { version: 1, entries: [] };
-    const validTypes = { lesson: 1, range: 1, thought: 1 };
+    const validTypes = { lesson: 1, range: 1, thought: 1, round: 1 };
     const entries = Array.isArray(raw.entries) ? raw.entries.map(e => ({
       id:         e.id || makeId(),
       type:       validTypes[e.type] ? e.type : 'thought',
@@ -1632,14 +1634,14 @@
     );
 
     if (entries.length === 0) {
-      list.innerHTML = '<div class="empty-state">No entries yet.<br>Tap <strong>+ New entry</strong> to log a lesson, range session, or quick thought.</div>';
+      list.innerHTML = '<div class="empty-state">No entries yet.<br>Tap <strong>+ New entry</strong> to log a lesson, range session, round, or quick thought.</div>';
       return;
     }
     list.innerHTML = entries.map(entryCardHtml).join('');
   }
 
   function entryCardHtml(e) {
-    const typeLabel = ({ lesson: 'Lesson', range: 'Range session', thought: 'Thought' })[e.type] || 'Entry';
+    const typeLabel = ({ lesson: 'Lesson', range: 'Range session', thought: 'Thought', round: 'Round' })[e.type] || 'Entry';
     const instructorChunk = (e.type === 'lesson' && e.instructor)
       ? ' <span class="entry-instructor">' + escapeHtml(e.instructor) + '</span>'
       : '';
@@ -1671,7 +1673,7 @@
     const entries = state.entries.filter(e => !e.deleted)
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const today = todayISO();
-    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
+    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought', round: 'Round' };
     const lines = ['# Golf Log', '', '*Exported ' + today + ' \u00b7 ' + entries.length + ' entries*', ''];
     for (const e of entries) {
       const heading = (e.title && e.title.trim()) ? e.title.trim() : typeLabels[e.type];
@@ -2294,7 +2296,7 @@
 
   // System voice for "Ask your log": the model is handed the full log + a plain-
   // English request and must honor the user's own filters (types, dates, counts).
-  const ASK_SYSTEM = 'You are a serious golf coach. You are given the user\'s full golf log (each entry dated and tagged Lesson / Range session / Thought) followed by a request. Answer ONLY from the log. Honor exactly what they ask for: the entry TYPES they name (e.g. lessons, range sessions), any DATE range (e.g. "after April"), and any COUNT or recency (e.g. "my last two"). Use the provided current date to resolve relative dates like "this year" or "last month". If nothing in the log matches the request, say so plainly rather than inventing. Unless the user asks for a different format, reply with: a one or two sentence summary of what you looked at and the through-line, then bullet-point swing thoughts, then named drills with how to do them and what to feel. Direct, specific, honest. No cliches, no filler.';
+  const ASK_SYSTEM = 'You are a serious golf coach. You are given the user\'s full golf log (each entry dated and tagged Lesson / Range session / Round / Thought) followed by a request. Answer ONLY from the log. Honor exactly what they ask for: the entry TYPES they name (e.g. lessons, range sessions), any DATE range (e.g. "after April"), and any COUNT or recency (e.g. "my last two"). Use the provided current date to resolve relative dates like "this year" or "last month". If nothing in the log matches the request, say so plainly rather than inventing. Unless the user asks for a different format, reply with: a one or two sentence summary of what you looked at and the through-line, then bullet-point swing thoughts, then named drills with how to do them and what to feel. Direct, specific, honest. No cliches, no filler.';
 
   async function analyzeEntryFromForm() {
     if (!aiReady()) {
@@ -2344,7 +2346,7 @@
 
   async function analyzeEntry(entry, includeHistory) {
     const typeLabel = ({
-      lesson: 'lesson', range: 'range session', thought: 'quick thought'
+      lesson: 'lesson', range: 'range session', thought: 'quick thought', round: 'round'
     })[entry.type] || 'entry';
 
     const lines = [];
@@ -2365,7 +2367,7 @@
         .filter(e => !e.deleted && e.id !== entry.id)
         .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
       if (others.length) {
-        const tl = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
+        const tl = { lesson: 'Lesson', range: 'Range session', thought: 'Thought', round: 'Round' };
         const hist = others.map(function(e) {
           const head = e.date + ' \u2014 ' + (tl[e.type] || 'Entry') + (e.title ? ': ' + e.title : '');
           return head + '\n' + (e.body || '(no notes)');
@@ -2395,7 +2397,7 @@
   function buildLogText() {
     const entries = state.entries.filter(e => !e.deleted);
     const sorted = entries.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought' };
+    const typeLabels = { lesson: 'Lesson', range: 'Range session', thought: 'Thought', round: 'Round' };
     return sorted.map(function(e) {
       const head = e.date + ' — ' + (typeLabels[e.type] || 'Entry')
                  + (e.title ? ': ' + e.title : '');
@@ -2413,7 +2415,7 @@
     query = (query || '').trim();
     if (!query) return;
     const logText = buildLogText();
-    if (!logText) { alert('No entries to ask about yet. Add a lesson, range session, or thought first.'); return; }
+    if (!logText) { alert('No entries to ask about yet. Add a lesson, range session, round, or thought first.'); return; }
     const userMsg = [
       'Today is ' + todayISO() + '.',
       '',
@@ -2458,9 +2460,10 @@
     'You organize a golfer\'s pasted notes into clean, structured log entries. ' +
     'Return ONLY a JSON array (no prose, no markdown, no code fences). ' +
     'Make ONE entry per distinct session or instructor block. Each array item is an object: ' +
-    '{"type":"lesson"|"range"|"thought","date":string,"instructor":string,"location":string,"title":string,"body":string}. ' +
+    '{"type":"lesson"|"range"|"round"|"thought","date":string,"instructor":string,"location":string,"title":string,"body":string}. ' +
     'RULES: ' +
-    '- type: "lesson" for instructor/lesson notes, "range" for practice/range-session notes, "thought" for a standalone cue or idea with no lesson context. ' +
+    '- type: "lesson" for instructor/lesson notes, "range" for practice/range-session notes, "round" for notes from actually playing a round on a course, "thought" for a standalone cue or idea with no lesson context. ' +
+    '- for a "round", put the course name in "location" if given. ' +
     '- date: use a date ONLY if it is explicitly stated. Full date -> "YYYY-MM-DD"; month+year only -> "YYYY-MM"; year only -> "YYYY". If no date is stated (e.g. "[fill in]", "accumulated", "dates not recorded"), use "". NEVER invent or guess a date. ' +
     '- instructor: the coach\'s name if given, else "". location: place if given, else "". ' +
     '- title: a short, specific title (a few words). ' +
@@ -2468,7 +2471,7 @@
     'Output the JSON array and nothing else.';
 
   let organizeDrafts = [];
-  const ORG_TYPES = { lesson: 1, range: 1, thought: 1 };
+  const ORG_TYPES = { lesson: 1, range: 1, thought: 1, round: 1 };
 
   // Defensive parse: models sometimes wrap the array in fences or a stray word.
   function extractJsonArray(text) {
@@ -2556,7 +2559,7 @@
       html += '<div class="org-card" data-i="' + i + '">'
         + '<label class="org-include-row"><input type="checkbox" class="org-include" checked> Include this entry</label>'
         + '<div class="org-row">'
-        +   '<select class="org-type">' + opt('lesson', d.type) + opt('range', d.type) + opt('thought', d.type) + '</select>'
+        +   '<select class="org-type">' + opt('lesson', d.type) + opt('range', d.type) + opt('round', d.type) + opt('thought', d.type) + '</select>'
         +   '<input class="org-date" placeholder="YYYY-MM-DD (blank = undated)" value="' + escapeHtml(d.date) + '">'
         + '</div>'
         + '<input class="org-instructor" placeholder="Instructor (lessons)" value="' + escapeHtml(d.instructor) + '">'
@@ -2603,7 +2606,7 @@
     }
     const entries = state.entries.filter(e => !e.deleted);
     if (entries.length === 0) {
-      alert('No entries to analyze yet. Add a lesson, range session, or thought first.');
+      alert('No entries to analyze yet. Add a lesson, range session, round, or thought first.');
       return;
     }
 
@@ -2698,7 +2701,7 @@
   // file, compare, and offer a one-tap refresh. Bump APP_VERSION on every
   // user-facing change and the app notifies itself.
   // ============================================================
-  const APP_VERSION = "1.16.2";
+  const APP_VERSION = "1.17.0";
 
   function getAppBaseUrl() {
     // Re-fetch THIS file, minus any query/hash, so the version compare is
@@ -4214,6 +4217,7 @@
       <select id="entry-type" onchange="onEntryTypeChange()">
         <option value="lesson">Lesson</option>
         <option value="range">Range session</option>
+        <option value="round">Round played</option>
         <option value="thought">Quick thought</option>
       </select>
 
