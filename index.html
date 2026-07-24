@@ -808,6 +808,24 @@
   .course-fav { color: var(--gold); font-size: 1.15rem; line-height: 1; }
   .empty-note { color: #777; font-size: 0.85rem; text-align: center; padding: 18px 8px; }
 
+  /* ----- Swipe-to-delete on list rows (portfolio standard) -----
+     The rendered card becomes .swipe-body inside a .swipe-wrap; a fixed red
+     Delete button sits behind it and is revealed by swiping the row left. */
+  .swipe-wrap { position: relative; overflow: hidden; border-radius: 14px; }
+  .swipe-wrap > .entry-card, .swipe-wrap > .course-card { margin-bottom: 0; }
+  #entries-list .swipe-wrap, #saved-list .swipe-wrap { box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+  #courses-list .swipe-wrap, #rounds-list .swipe-wrap {
+    border-radius: 12px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .swipe-del {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 88px; border: none;
+    background: #b23b29; color: #fff; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; font-size: 12px; font-weight: 700; font-family: inherit;
+  }
+  .swipe-del svg { width: 18px; height: 18px; stroke: #fff; stroke-width: 2; fill: none; }
+  .swipe-body { position: relative; touch-action: pan-y; will-change: transform; }
+
   /* horizontal-scroll scorecard grid (a real card has more columns than a phone is wide) */
   .scorecard-wrap {
     overflow-x: auto; -webkit-overflow-scrolling: touch;
@@ -1599,9 +1617,13 @@
   }
 
   function deleteEntry() {
-    if (!editingId) return;
-    if (!confirm('Delete this entry? It will be removed from this device and from sync.')) return;
-    const e = state.entries.find(x => x.id === editingId);
+    if (editingId && deleteEntryById(editingId)) closeEntryForm();
+  }
+
+  // Shared by the edit form's Delete button and swipe-to-delete on the list.
+  function deleteEntryById(id) {
+    if (!confirm('Delete this entry? It will be removed from this device and from sync.')) return false;
+    const e = state.entries.find(x => x.id === id);
     if (e) {
       // Tombstone, not real removal: a deletion has to propagate via sync, or
       // another device will push the entry back next time it merges.
@@ -1610,8 +1632,8 @@
     }
     saveLocal();
     renderEntries();
-    closeEntryForm();
     scheduleSync();
+    return true;
   }
 
   // ---------- filter / search / render ----------
@@ -1646,6 +1668,7 @@
       return;
     }
     list.innerHTML = entries.map(entryCardHtml).join('');
+    armSwipeRows(list, deleteEntryById);
   }
 
   function entryCardHtml(e) {
@@ -1657,7 +1680,7 @@
       ? '<div class="entry-body">' + escapeHtml(e.body).replace(/\n/g, '<br>') + '</div>'
       : '';
     return ''
-      + '<div class="entry-card" onclick="openEntryForm(\'' + e.id + '\')">'
+      + '<div class="entry-card" data-id="' + e.id + '" onclick="openEntryForm(\'' + e.id + '\')">'
       +   '<div class="entry-meta">'
       +     '<span class="entry-type-badge type-' + e.type + '">' + typeLabel + '</span>'
       +     '<span class="entry-date">' + escapeHtml(e.date) + instructorChunk + '</span>'
@@ -1674,6 +1697,71 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  // ---------- swipe-to-delete (portfolio standard, vanilla) ----------
+  // attachSwipeDelete(rowEl, onDelete): wraps an already-rendered list row so
+  // swiping it LEFT (pointer events: touch + mouse) slides it open to reveal a
+  // red Delete button. Horizontal-intent detection (|dx| > |dy| + 4, with
+  // touch-action:pan-y on the row) leaves vertical scrolling untouched, and a
+  // real swipe suppresses the row's tap action. Tapping Delete calls onDelete.
+  function attachSwipeDelete(rowEl, onDelete) {
+    const wrap = document.createElement('div');
+    wrap.className = 'swipe-wrap';
+    rowEl.parentNode.replaceChild(wrap, rowEl);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'swipe-del';
+    del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg><span>Delete</span>';
+    wrap.appendChild(del);
+    rowEl.classList.add('swipe-body');
+    wrap.appendChild(rowEl);
+
+    let dx = 0, start = null, moved = false;
+    function apply(animate) {
+      rowEl.style.transition = animate ? 'transform .18s' : 'none';
+      rowEl.style.transform = 'translateX(' + dx + 'px)';
+    }
+    function close(animate) { dx = 0; moved = false; apply(animate); }
+    rowEl.addEventListener('pointerdown', function (e) {
+      start = { x: e.clientX, y: e.clientY, base: dx };
+      moved = false;
+      try { rowEl.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    rowEl.addEventListener('pointermove', function (e) {
+      if (!start) return;
+      const ddx = e.clientX - start.x, ddy = e.clientY - start.y;
+      if (!moved && Math.abs(ddx) > Math.abs(ddy) + 4) moved = true;
+      if (moved) { dx = Math.max(-96, Math.min(0, start.base + ddx)); apply(false); }
+    });
+    function up() {
+      if (!start) return;
+      start = null;
+      dx = dx <= -48 ? -84 : 0;   // past halfway on the button: snap open, else shut
+      if (dx === 0) moved = false;
+      apply(true);
+    }
+    rowEl.addEventListener('pointerup', up);
+    rowEl.addEventListener('pointercancel', up);
+    // Capture-phase on the wrap so a swipe (or tapping an already-open row
+    // anywhere but Delete) eats the click before the row's own onclick runs.
+    wrap.addEventListener('click', function (e) {
+      if (del.contains(e.target)) return;
+      if (moved || dx !== 0) { e.stopPropagation(); e.preventDefault(); close(true); }
+    }, true);
+    del.addEventListener('click', function (e) {
+      e.stopPropagation();
+      close(true);
+      onDelete();
+    });
+  }
+
+  // Arm every freshly rendered row (marked with data-id) in a list container.
+  function armSwipeRows(listEl, deleteById) {
+    Array.prototype.forEach.call(listEl.children, function (row) {
+      const id = row.getAttribute && row.getAttribute('data-id');
+      if (id) attachSwipeDelete(row, function () { deleteById(id); });
+    });
   }
 
   // ---------- export ----------
@@ -2711,11 +2799,11 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.17.1";
+  const APP_VERSION = "1.18.0";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
-  const BUILD = "2026-07-23.1";
+  const BUILD = "2026-07-23.2";
   // Compare two build stamps of the form "YYYY-MM-DD.N". A plain string compare is wrong
   // (the counter isn't zero-padded, so ".11" < ".9" lexically); split on - and . into
   // numeric fields and compare left to right. True iff `a` is strictly newer than `b`.
@@ -3059,14 +3147,18 @@
   }
 
   function deleteConversation() {
-    if (!activeConvo) return;
-    if (!confirm('Delete this analysis? It is removed from this device and from sync.')) return;
-    const a = (state.analyses || []).find(function(x) { return x.id === activeConvo.id; });
+    if (activeConvo && deleteAnalysisById(activeConvo.id)) closeAnalysis();
+  }
+
+  // Shared by the open conversation's Delete button and swipe-to-delete on the saved list.
+  function deleteAnalysisById(id) {
+    if (!confirm('Delete this analysis? It is removed from this device and from sync.')) return false;
+    const a = (state.analyses || []).find(function(x) { return x.id === id; });
     if (a) { a.deleted = true; a.updatedAt = new Date().toISOString(); }
     persistAnalyses();
-    closeAnalysis();
     renderSavedCount();
     renderSavedListModal();
+    return true;
   }
 
   function persistAnalyses() {
@@ -3101,11 +3193,12 @@
     list.innerHTML = items.map(function(a) {
       const when = a.updatedAt ? a.updatedAt.slice(0, 10) : '';
       const turns = a.messages.filter(function(m) { return m.role === 'assistant'; }).length;
-      return '<div class="entry-card" onclick="openSavedConversation(\'' + a.id + '\')">'
+      return '<div class="entry-card" data-id="' + a.id + '" onclick="openSavedConversation(\'' + a.id + '\')">'
         + '<div class="entry-title">' + escapeHtml(a.title) + '</div>'
         + '<div class="entry-meta"><span class="entry-date">' + when + ' \u00b7 ' + turns + ' repl' + (turns === 1 ? 'y' : 'ies') + '</span></div>'
         + '</div>';
     }).join('');
+    armSwipeRows(list, deleteAnalysisById);
   }
 
   function openSavedConversation(id) {
@@ -3314,14 +3407,18 @@
   }
 
   function deleteCourse() {
-    if (!courseDraft) return;
-    if (!confirm('Delete this course? It will be removed on all your devices.')) return;
-    const c = state.courses.find(x => x.id === courseDraft.id);
+    if (courseDraft && deleteCourseById(courseDraft.id)) closeCourseForm();
+  }
+
+  // Shared by the course form's Delete button and swipe-to-delete on the list.
+  function deleteCourseById(id) {
+    if (!confirm('Delete this course? It will be removed on all your devices.')) return false;
+    const c = state.courses.find(x => x.id === id);
     if (c) { c.deleted = true; c.updatedAt = new Date().toISOString(); }
     saveLocal();
     renderCourses();
-    closeCourseForm();
     scheduleSync();
+    return true;
   }
 
   function renderCourses() {
@@ -3348,12 +3445,13 @@
       if (parTotal) meta.push('par ' + parTotal);
       if (c.tees && c.tees.length) meta.push(c.tees.join(' / '));
       if (c.city) meta.unshift(escapeHtml(c.city));
-      return '<div class="course-card" onclick="openCourseForm(\'' + c.id + '\')">' +
+      return '<div class="course-card" data-id="' + c.id + '" onclick="openCourseForm(\'' + c.id + '\')">' +
                '<div><h4>' + escapeHtml(c.name || 'Untitled course') + '</h4>' +
                '<div class="meta">' + meta.join(' &middot; ') + '</div></div>' +
                (c.favorite ? '<span class="course-fav">\u2605</span>' : '') +
              '</div>';
     }).join('');
+    armSwipeRows(listEl, deleteCourseById);
   }
 
   // Small HTML escaper for any user/scan text we drop into innerHTML.
@@ -3944,14 +4042,18 @@
   }
 
   function deleteRound() {
-    if (!roundDraft) return;
-    if (!confirm('Delete this round? It will be removed on all your devices.')) return;
-    const r = state.rounds.find(x => x.id === roundDraft.id);
+    if (roundDraft && deleteRoundById(roundDraft.id)) closeRoundForm();
+  }
+
+  // Shared by the round form's Delete button and swipe-to-delete on the list.
+  function deleteRoundById(id) {
+    if (!confirm('Delete this round? It will be removed on all your devices.')) return false;
+    const r = state.rounds.find(x => x.id === id);
     if (r) { r.deleted = true; r.updatedAt = new Date().toISOString(); }
     saveLocal();
     renderRounds();
-    closeRoundForm();
     scheduleSync();
+    return true;
   }
 
   function renderRounds() {
@@ -3985,12 +4087,13 @@
       meta.push(prettyDate(r.date));
       if (r.tee) meta.push(escapeHtml(r.tee) + ' tees');
       if (r.players.length > 1) meta.push(r.players.length + ' players');
-      return '<div class="course-card" onclick="openRoundForm(\'' + r.id + '\')">' +
+      return '<div class="course-card" data-id="' + r.id + '" onclick="openRoundForm(\'' + r.id + '\')">' +
                '<div><h4>' + escapeHtml(course ? (course.name || 'Untitled') : 'Course removed') + '</h4>' +
                '<div class="meta">' + meta.join(' \u00b7 ') + '</div></div>' +
                (scoreStr ? '<div class="round-score">' + scoreStr + '</div>' : '') +
              '</div>';
     }).join('');
+    armSwipeRows(listEl, deleteRoundById);
   }
 
   function prettyDate(iso) {
